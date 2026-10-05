@@ -6,9 +6,19 @@ import { session, devices, cached, loadedAt, statusOf, statusInfo, battery, STAT
 import { $, $$, html, render, raw, icon, on, debounce, fmtNum, plural, timeAgo, fmtDate, copy, toast, openDialog, confirmDialog, download, today, slug } from '../ui.js';
 import { runJob } from '../jobs.js';
 import { toCSV, toXLSX, normHex } from '../files.js';
+import { lineChart, barChart, unitOf, fmtVal } from '../charts.js';
 import { isValidTagKey } from '../store.js';
 
 const PAGE = 300;
+
+// Périodes d'historique, avec l'agrégation adaptée à la rétention par défaut de ChirpStack.
+const PERIODS = {
+    '24h': { label: '24 h', hours: 24, agg: 'HOUR' },
+    '48h': { label: '48 h', hours: 48, agg: 'HOUR' },
+    '7d': { label: '7 j', hours: 24 * 7, agg: 'DAY' },
+    '30d': { label: '30 j', hours: 24 * 30, agg: 'DAY' },
+    '1y': { label: '12 mois', hours: 24 * 365, agg: 'MONTH' },
+};
 
 export function mount(root, { navigate, chooseApp }) {
     const app = session.app;
@@ -569,8 +579,8 @@ export function mount(root, { navigate, chooseApp }) {
         document.body.append(scrim, dr);
         let full = null;
         let keys;
-        let period = '24h';
-        let metrics = null;
+        let period = session.lastPeriod || '24h';
+        let metrics = null; // { link, measures, … } | { error }
         let editing = false;
 
         const onEsc = (e) => { if (e.key === 'Escape' && !document.querySelector('dialog[open]')) close(); };
@@ -587,12 +597,59 @@ export function mount(root, { navigate, chooseApp }) {
         // Lien vers l'interface ChirpStack (pas en démo, ni en mode REST où l'adresse est celle de l'API).
         const chirpstackLink = () => (api.isDemo() || api.mode() === 'rest' ? null : `${api.serverUrl()}/#/tenants/${session.tenant.id}/applications/${app.id}/devices/${eui}`);
 
-        function metricsBlock() {
-            if (!metrics) return html`<div class="skeleton" style="height:140px"></div>`;
-            if (metrics.error) return html`<p class="err small">${metrics.error}</p>`;
-            const m = metrics.data;
-            const ts = m.rxPackets?.timestamps || [];
-            const rx = (m.rxPackets?.datasets?.[0]?.data || []).map(Number);
+        // Séries prêtes à afficher : mesures du Device Profile + liaison radio, sur la même échelle de temps.
+        function series() {
+            const link = metrics.link || {};
+            const ts = link.rxPackets?.timestamps || [];
+            const rxData = (link.rxPackets?.datasets?.[0]?.data || []).map(Number);
+            const rxByTs = new Map(ts.map((t, i) => [t, rxData[i] || 0]));
+            const measures = Object.entries(metrics.measures?.metrics || {}).map(([key, m]) => {
+                const mts = m.timestamps || [];
+                // ChirpStack renvoie 0 pour un intervalle sans message : on en fait un trou (sauf compteurs par période).
+                const values = (m.datasets?.[0]?.data || []).map(Number).map((v, i) => {
+                    if (!Number.isFinite(v)) return null;
+                    if (m.kind !== 'ABSOLUTE' && rxByTs.get(mts[i]) === 0) return null;
+                    return v;
+                });
+                const vals = values.filter((v) => v !== null);
+                return {
+                    key, name: m.name || key, kind: m.kind, unit: unitOf(key, m.name), timestamps: mts, values,
+                    last: [...values].reverse().find((v) => v !== null) ?? null,
+                    min: vals.length ? Math.min(...vals) : null,
+                    max: vals.length ? Math.max(...vals) : null,
+                    avg: vals.length ? vals.reduce((x, y) => x + y, 0) / vals.length : null,
+                    sum: vals.reduce((x, y) => x + y, 0),
+                };
+            });
+            const states = Object.entries(metrics.measures?.states || {}).map(([key, st]) => ({ key, name: st.name || key, value: st.value }));
+            return { link, ts, rx: rxData, measures, states };
+        }
+
+        function measuresBlock(S) {
+            if (metrics.measuresError) return html`<p class="dim small">Mesures indisponibles : ${metrics.measuresError}</p>`;
+            if (!S.measures.length && !S.states.length) {
+                return html`<div class="callout">${icon('alert')}<div>Aucune mesure historisée pour ce device. ChirpStack n'enregistre que les mesures déclarées dans le
+                    <strong>Device Profile</strong> (onglet <em>Measurements</em>, type autre que « Unknown ») et décodées par son codec.</div></div>`;
+            }
+            const agg = PERIODS[period].agg;
+            const cur = S.measures.find((m) => m.key === session.lastMeasure) || S.measures[0];
+            const tiles = cur && (cur.kind === 'ABSOLUTE'
+                ? [['total', cur.sum], ['min / intervalle', cur.min], ['moyenne', cur.avg], ['max / intervalle', cur.max]]
+                : [['dernière', cur.last], ['min', cur.min], ['moyenne', cur.avg], ['max', cur.max]]);
+            return html`
+                ${S.measures.length > 1 ? html`<div class="measure-chips" role="tablist">${S.measures.map((m) => html`<button class="fchip ${m === cur ? 'on' : ''}" data-act2="measure" data-k="${m.key}" role="tab" aria-selected="${m === cur}">
+                    ${m.name} <strong>${fmtVal(m.kind === 'ABSOLUTE' ? m.sum : m.last)}${m.unit ? ` ${m.unit}` : ''}</strong></button>`)}</div>` : ''}
+                ${cur ? html`
+                    ${S.measures.length === 1 ? html`<p class="small soft" style="margin-bottom:.5rem"><strong>${cur.name}</strong></p>` : ''}
+                    <div class="metric-tiles">${tiles.map(([label, v], i) => html`<div><div class="k-label">${label}</div><div class="k-value ${i === 0 ? 'ok' : ''}">${fmtVal(v)}<span class="xs dim"> ${cur.unit}</span></div></div>`)}</div>
+                    ${cur.kind === 'ABSOLUTE' ? barChart(cur.timestamps, cur.values, { unit: cur.unit, agg }) : lineChart(cur.timestamps, cur.values, { unit: cur.unit, agg })}` : ''}
+                ${S.states.length ? html`<dl class="kv mt">${S.states.map((st) => html`<dt>${st.name}</dt><dd class="mono small">${st.value}</dd>`)}</dl>` : ''}`;
+        }
+
+        function linkBlock(S) {
+            if (metrics.linkError) return html`<p class="dim small">Liaison radio indisponible : ${metrics.linkError}</p>`;
+            const m = S.link;
+            const rx = S.rx;
             const sumDs = (metric) => (metric?.datasets || []).reduce((acc, ds) => { (ds.data || []).forEach((v, i) => { acc[i] = (acc[i] || 0) + Number(v || 0); }); return acc; }, []);
             const errs = sumDs(m.errors).reduce((a, b) => a + b, 0);
             const total = rx.reduce((a, b) => a + b, 0);
@@ -604,26 +661,37 @@ export function mount(root, { navigate, chooseApp }) {
             const rssi = avg(m.gwRssi);
             const snr = avg(m.gwSnr);
             const q = (v, good, ok) => (v === null ? '' : v >= good ? 'ok' : v >= ok ? 'warn' : 'err');
-            const W = 520;
-            const H = 120;
-            const n = rx.length || 1;
-            const max = Math.max(1, ...rx);
-            const bw = W / n;
-            const fmtTs = (t) => new Date(t).toLocaleString('fr-FR', period === '30d' ? { day: '2-digit', month: '2-digit' } : { day: '2-digit', hour: '2-digit', minute: '2-digit' });
             return html`<div class="metric-tiles">
                     <div><div class="k-label">paquets</div><div class="k-value">${fmtNum(total)}</div></div>
                     <div><div class="k-label">erreurs</div><div class="k-value ${errs ? 'err' : ''}">${fmtNum(errs)}</div></div>
                     <div><div class="k-label">RSSI moyen</div><div class="k-value ${q(rssi, -100, -115)}">${rssi === null ? '—' : `${rssi.toFixed(0)}`}<span class="xs dim"> dBm</span></div></div>
                     <div><div class="k-label">SNR moyen</div><div class="k-value ${q(snr, 0, -10)}">${snr === null ? '—' : snr.toFixed(1)}<span class="xs dim"> dB</span></div></div>
                 </div>
-                <svg class="chart" viewBox="0 0 ${W} ${H + 18}" preserveAspectRatio="none" role="img" aria-label="Paquets reçus par intervalle">
-                    <line class="grid-line" x1="0" x2="${W}" y1="${H}" y2="${H}"/>
-                    <line class="grid-line" x1="0" x2="${W}" y1="${H / 2}" y2="${H / 2}" stroke-dasharray="3 3"/>
-                    ${rx.map((v, i) => raw(`<rect class="bar ${v ? '' : 'zero'}" x="${(i * bw + 1).toFixed(1)}" y="${(H - Math.max(v ? 2 : 1, (v / max) * H)).toFixed(1)}" width="${Math.max(1, bw - 2).toFixed(1)}" height="${Math.max(v ? 2 : 1, (v / max) * H).toFixed(1)}"><title>${esc(fmtTs(ts[i]))} : ${v} paquet(s)</title></rect>`))}
-                    <text x="0" y="${H + 14}">${ts[0] ? fmtTs(ts[0]) : ''}</text>
-                    <text x="${W}" y="${H + 14}" text-anchor="end">${ts.length ? fmtTs(ts[ts.length - 1]) : ''}</text>
-                    <text x="${W}" y="10" text-anchor="end">max ${max}</text>
-                </svg>`;
+                ${barChart(S.ts, rx, { agg: PERIODS[period].agg, label: 'paquet(s)' })}`;
+        }
+
+        function metricsBlock() {
+            if (!metrics) return html`<div class="skeleton" style="height:180px"></div>`;
+            if (metrics.error) return html`<p class="err small">${metrics.error}</p>`;
+            const S = series();
+            return html`<div class="sub-title">// mesures</div>${measuresBlock(S)}
+                <div class="sub-title">// liaison radio</div>${linkBlock(S)}
+                <p class="hint">ChirpStack conserve des valeurs agrégées : par défaut 2 jours en horaire, 1 mois en journalier, 1 an en mensuel.</p>`;
+        }
+
+        // Export de l'historique affiché : une ligne par intervalle, une colonne par mesure.
+        function exportHistory() {
+            if (!metrics || metrics.error) return;
+            const S = series();
+            const cell = (v) => (v === null || v === undefined || !Number.isFinite(v) ? '' : String(v).replace('.', ','));
+            const rssi = (S.link.gwRssi?.datasets?.[0]?.data || []).map((v, i) => (S.rx[i] > 0 ? Number(v) : null));
+            const snr = (S.link.gwSnr?.datasets?.[0]?.data || []).map((v, i) => (S.rx[i] > 0 ? Number(v) : null));
+            const all = [...new Set([...S.ts, ...S.measures.flatMap((m) => m.timestamps)])].sort();
+            const pick = (arr, tsArr, t) => cell(arr[tsArr.indexOf(t)]);
+            const head = ['horodatage', ...S.measures.map((m) => (m.unit ? `${m.name} (${m.unit})` : m.name)), 'paquets reçus', 'RSSI moyen (dBm)', 'SNR moyen (dB)'];
+            const rows = all.map((t) => [new Date(t).toLocaleString('fr-FR'), ...S.measures.map((m) => pick(m.values, m.timestamps, t)), pick(S.rx, S.ts, t), pick(rssi, S.ts, t), pick(snr, S.ts, t)]);
+            const d = list.find((x) => x.devEui === eui) || d0;
+            download(toCSV(head, rows), `${slug(d.name)}-historique-${period}-${today()}.csv`, 'text/csv;charset=utf-8');
         }
 
         function editForm(dev) {
@@ -677,8 +745,9 @@ export function mount(root, { navigate, chooseApp }) {
                     </dl>
                     <h3 class="section-title" style="font-size:14px;margin-top:1.5rem">Tags</h3>
                     ${Object.keys(d.tags || {}).length ? html`<div class="tags">${Object.entries(d.tags).map(([k, v]) => html`<span class="tag"><span class="k">${k}</span><span class="v">${v}</span></span>`)}</div>` : html`<p class="dim small">Aucun tag.</p>`}
-                    <h3 class="section-title" style="font-size:14px;margin-top:1.5rem">Liaison radio
-                        <span class="end"><span class="seg">${[['24h', '24 h'], ['7d', '7 j'], ['30d', '30 j']].map(([v, l]) => html`<button class="${period === v ? 'on' : ''}" data-act2="period" data-v="${v}">${l}</button>`)}</span></span></h3>
+                    <h3 class="section-title" style="font-size:14px;margin-top:1.5rem">Historique
+                        <span class="end row"><span class="seg">${Object.entries(PERIODS).map(([v, p]) => html`<button class="${period === v ? 'on' : ''}" data-act2="period" data-v="${v}">${p.label}</button>`)}</span>
+                        <button class="btn btn-sm btn-ghost" data-act2="csv" title="Exporter l'historique (CSV)" ${metrics && !metrics.error ? '' : 'disabled'}>${icon('download')}</button></span></h3>
                     <div id="dv-metrics">${metricsBlock()}</div>`}
                 </div>`);
         }
@@ -688,17 +757,26 @@ export function mount(root, { navigate, chooseApp }) {
             const el = $('#dv-metrics', dr);
             if (el) render(el, metricsBlock());
             const end = new Date();
-            const hours = { '24h': 24, '7d': 168, '30d': 720 }[period];
+            const { hours, agg } = PERIODS[period];
             const start = new Date(end.getTime() - hours * 3600000);
-            const agg = period === '30d' ? 'DAY' : 'HOUR';
-            try {
-                const data = await api.get(`/api/devices/${eui}/link-metrics?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}&aggregation=${agg}`);
-                metrics = { data };
-            } catch (e) {
-                metrics = { error: api.humanize(e) };
-            }
+            const qs = `start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}&aggregation=${agg}`;
+            const asked = period;
+            const [link, measures] = await Promise.allSettled([
+                api.get(`/api/devices/${eui}/link-metrics?${qs}`),
+                api.get(`/api/devices/${eui}/metrics?${qs}`),
+            ]);
+            if (asked !== period) return; // une autre période a été demandée entre-temps
+            metrics = {
+                link: link.status === 'fulfilled' ? link.value : null,
+                linkError: link.status === 'rejected' ? api.humanize(link.reason) : null,
+                measures: measures.status === 'fulfilled' ? measures.value : null,
+                measuresError: measures.status === 'rejected' ? api.humanize(measures.reason) : null,
+            };
+            if (!metrics.link && !metrics.measures) metrics = { error: metrics.linkError };
             const box = $('#dv-metrics', dr);
             if (box) render(box, metricsBlock());
+            const csvBtn = dr.querySelector('[data-act2="csv"]');
+            if (csvBtn) csvBtn.disabled = !!metrics.error;
         }
 
         dr.addEventListener('click', async (e) => {
@@ -712,7 +790,9 @@ export function mount(root, { navigate, chooseApp }) {
                 try { keys = await ops.getKeys(eui); } catch (err) { toast(api.humanize(err), { type: 'err' }); }
                 drawDrawer();
             }
-            if (act === 'period') { period = b.dataset.v; drawDrawer(); loadMetrics(); }
+            if (act === 'period') { period = b.dataset.v; session.lastPeriod = period; drawDrawer(); loadMetrics(); }
+            if (act === 'measure') { session.lastMeasure = b.dataset.k; render($('#dv-metrics', dr), metricsBlock()); }
+            if (act === 'csv') exportHistory();
             if (act === 'edit') {
                 if (!full) { b.classList.add('loading'); full = await ops.getDevice(eui).catch(() => null); }
                 editing = !!full;
@@ -778,9 +858,6 @@ export function mount(root, { navigate, chooseApp }) {
         ops.getDevice(eui).then((r) => { full = r; if (!editing) { const kv = dr.querySelector('.kv'); if (kv) { drawDrawer(); if (metrics) render($('#dv-metrics', dr), metricsBlock()); } } }).catch(() => {});
     }
 
-    function esc(s) {
-        return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-    }
 
     const offDevices = listen('devices', (d) => {
         if (d?.appId === app.id && alive) {

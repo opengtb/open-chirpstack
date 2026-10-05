@@ -523,6 +523,62 @@ function mainDr(rssi) {
   return 0;
 }
 
+// Mesures historisées (GET /metrics), comme celles déclarées dans un Device Profile ChirpStack.
+const MEASUREMENTS = {
+  elsys: [['temperature', 'Température', 'GAUGE'], ['humidity', 'Humidité', 'GAUGE'], ['co2', 'CO2', 'GAUGE']],
+  adeunis: [['temperature', 'Température', 'GAUGE']],
+  milesight: [['temperature', 'Température', 'GAUGE'], ['humidity', 'Humidité', 'GAUGE']],
+  watteco: [['index', 'Index énergie (Wh)', 'COUNTER'], ['pulses', 'Impulsions', 'ABSOLUTE']],
+  dragino: [['temperature', 'Température', 'GAUGE'], ['humidity', 'Humidité', 'GAUGE'], ['battery_v', 'Tension pile', 'GAUGE']],
+  nke: [['temperature', 'Température', 'GAUGE']],
+};
+
+function measureValue(key, d, t, r, aggHours) {
+  const hour = new Date(t).getUTCHours() + 2; // heure locale approximative
+  const day = new Date(t).getUTCDay();
+  const work = day >= 1 && day <= 5 && hour >= 8 && hour <= 18;
+  const seed = (hashStr(d.devEui) % 100) / 100;
+  const daily = Math.sin(((hour - 9) / 24) * 2 * Math.PI);
+  switch (key) {
+    case 'temperature': return round1(20 + seed * 2 + daily * 1.4 + (work ? 0.6 : -0.4) + r.float(-0.3, 0.3));
+    case 'humidity': return round1(48 - seed * 6 - daily * 4 + r.float(-1.5, 1.5));
+    case 'co2': return Math.round((work ? 650 + seed * 450 : 430 + seed * 40) + r.float(-30, 30));
+    case 'battery_v': return Math.round((3.05 + seed * 0.1 - (t - d.createdAt) / (365 * 24 * HOUR) * 0.08) * 1000) / 1000;
+    case 'pulses': return Math.round((work ? 120 : 35) * aggHours * (0.8 + r.float(0, 0.4)));
+    default: return 0;
+  }
+}
+
+function deviceMetrics(d, startMs, endMs, agg, now) {
+  const defs = MEASUREMENTS[d.profile] || [];
+  const timestamps = [];
+  const series = defs.map(() => []);
+  const aliveFrom = d.createdAt;
+  const aliveTo = d.lastSeenAt == null ? null : Math.min(d.lastSeenAt, now);
+  const aggHours = agg === 'HOUR' ? 1 : agg === 'DAY' ? 24 : 24 * 30;
+  // Index d'énergie : compteur croissant depuis la création du device.
+  const indexAt = (t) => Math.round(150000 + ((hashStr(d.devEui) % 50) + 20) * ((t - aliveFrom) / HOUR));
+  let t = truncate(startMs, agg);
+  let guard = 0;
+  while (t <= endMs && guard++ < 20000) {
+    const tEnd = nextBucket(t, agg);
+    timestamps.push(iso(t));
+    const alive = aliveTo != null && Math.min(tEnd, aliveTo) > Math.max(t, aliveFrom);
+    const r = makeRand(hashStr(`${d.devEui}|m|${agg}|${t}`));
+    defs.forEach(([key], i) => {
+      if (!alive) return series[i].push(0);
+      series[i].push(key === 'index' ? indexAt(Math.min(tEnd, aliveTo)) : measureValue(key, d, t, r, aggHours));
+    });
+    t = tEnd;
+  }
+  const metrics = {};
+  defs.forEach(([key, name, kind], i) => {
+    metrics[key] = { name, timestamps, datasets: [{ label: key, data: series[i] }], kind };
+  });
+  const states = d.profile === 'dragino' ? { alarm: { name: 'Alarme', value: 'non' } } : {};
+  return { metrics, states };
+}
+
 function linkMetrics(d, startMs, endMs, agg, now) {
   const timestamps = [];
   const rx = [];
@@ -803,6 +859,17 @@ export function createDemoBackend(options = {}) {
       if (!keys.has(d.devEui)) throw notFound(d.devEui);
       keys.delete(d.devEui);
       return {};
+    }],
+
+    ['GET', /^\/api\/devices\/([^/]+)\/metrics$/, (m, q) => {
+      const d = mustDevice(m[1]);
+      const start = Date.parse(q.get('start') ?? '');
+      const end = Date.parse(q.get('end') ?? '');
+      if (Number.isNaN(start) || Number.isNaN(end)) throw invalid('invalid start/end timestamp');
+      const agg = (q.get('aggregation') ?? 'HOUR').toUpperCase();
+      if (!['HOUR', 'DAY', 'MONTH'].includes(agg)) throw invalid(`invalid aggregation: ${agg}`);
+      const key = profiles.get(d.deviceProfileId)?.key;
+      return deviceMetrics({ ...d, profile: key }, start, end, agg, Date.now());
     }],
 
     ['GET', /^\/api\/devices\/([^/]+)\/link-metrics$/, (m, q) => {
