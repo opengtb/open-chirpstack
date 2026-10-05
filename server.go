@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,8 +17,8 @@ import (
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 
-	csapi "chirpstack-toolbox/internal/csapi"
-	"chirpstack-toolbox/internal/grpcweb"
+	csapi "open-chirpstack/internal/csapi"
+	"open-chirpstack/internal/grpcweb"
 )
 
 // En-têtes envoyés par l'interface web pour désigner le serveur ChirpStack cible.
@@ -28,6 +29,29 @@ const (
 )
 
 const maxCachedTargets = 16
+
+// Point de contrôle utilisé par main.go pour détecter une instance déjà lancée.
+const (
+	pingPath   = "/__open-chirpstack"
+	pingHeader = "X-Open-Chirpstack"
+)
+
+// Politique de sécurité de l'interface : aucun script ni ressource externe,
+// aucun script en ligne (une injection HTML ne peut donc rien exécuter).
+const contentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; " +
+	"base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+
+// Types MIME fixés ici : sous Windows, le registre peut associer .js à text/plain,
+// ce que les navigateurs refusent pour les modules JavaScript.
+var staticTypes = map[string]string{
+	".html":  "text/html; charset=utf-8",
+	".js":    "text/javascript; charset=utf-8",
+	".css":   "text/css; charset=utf-8",
+	".svg":   "image/svg+xml",
+	".woff2": "font/woff2",
+	".json":  "application/json",
+}
 
 type server struct {
 	static http.Handler
@@ -52,9 +76,22 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if r.URL.Path == pingPath {
+		w.Header().Set(pingHeader, "1")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	if !strings.HasPrefix(r.URL.Path, "/api/") {
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("Referrer-Policy", "no-referrer")
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "no-referrer")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Content-Security-Policy", contentSecurityPolicy)
+		h.Set("Cache-Control", "no-cache")
+		if ct, ok := staticTypes[path.Ext(r.URL.Path)]; ok {
+			h.Set("Content-Type", ct)
+		}
 		s.static.ServeHTTP(w, r)
 		return
 	}
@@ -115,7 +152,7 @@ func (s *server) target(rawURL, mode string, insecure bool) (http.Handler, error
 		s.targets = map[string]http.Handler{}
 	}
 
-	client := &http.Client{Timeout: 120 * time.Second, Transport: newTransport(insecure)}
+	client := &http.Client{Timeout: 120 * time.Second, Transport: newTransport(insecure), CheckRedirect: grpcweb.NoRedirect}
 	var h http.Handler
 	if mode == "rest" {
 		h = restProxy(base, client.Transport)

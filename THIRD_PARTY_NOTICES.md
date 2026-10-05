@@ -10,6 +10,11 @@ Licence : `internal/csapi/LICENSE-chirpstack-rest-api`.
 Pour les mettre à jour : recopier le dossier `api/` d'une version plus récente de
 chirpstack-rest-api et mettre à jour `internal/csapi/SOURCE`.
 
+## Polices IBM Plex Sans et JetBrains Mono — SIL Open Font License 1.1
+
+`web/assets/fonts/` : sous-ensembles latins des versions variables (distribution Fontsource).
+Licences : `web/assets/fonts/LICENSE-IBM-Plex-Sans.txt` et `web/assets/fonts/LICENSE-JetBrains-Mono.txt`.
+
 ## SheetJS Community Edition (xlsx 0.18.5) — Apache 2.0
 
 `web/vendor/xlsx.full.min.js`, licence : `web/vendor/LICENSE-xlsx`.

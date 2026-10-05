@@ -1,4 +1,4 @@
-// ChirpStack Toolbox : un seul exécutable qui sert l'interface web en local
+// Open ChirpStack : un seul exécutable qui sert l'interface web en local
 // et relaie les appels vers l'API gRPC de ChirpStack v4.
 package main
 
@@ -29,10 +29,22 @@ func main() {
 	port := flag.Int("port", defaultPort, "port d'écoute local (0 = port libre automatique)")
 	noBrowser := flag.Bool("no-browser", false, "ne pas ouvrir le navigateur au démarrage")
 	showVersion := flag.Bool("version", false, "afficher la version")
+	webDir := flag.String("web-dir", "", "développement : servir l'interface depuis ce dossier au lieu de la version embarquée")
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Println(version)
+		return
+	}
+
+	// Outil déjà lancé sur le port habituel : on rouvre simplement son onglet.
+	// Garder le même port conserve aussi les réglages enregistrés dans le navigateur.
+	if *port != 0 && alreadyRunning(*port) {
+		url := "http://127.0.0.1:" + strconv.Itoa(*port) + "/"
+		fmt.Println("Open ChirpStack est déjà lancé : " + url)
+		if !*noBrowser {
+			_ = openBrowser(url)
+		}
 		return
 	}
 
@@ -47,6 +59,9 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
+	if *webDir != "" {
+		web = os.DirFS(*webDir)
+	}
 
 	srv := &http.Server{
 		Handler:           newServer(web, addr.Port),
@@ -55,7 +70,7 @@ func main() {
 
 	fmt.Println()
 	fmt.Println("  ==================================================")
-	fmt.Println("   ChirpStack Toolbox " + version)
+	fmt.Println("   open/chirpstack " + version)
 	fmt.Println("  ==================================================")
 	fmt.Println("   Interface : " + url)
 	fmt.Println()
@@ -87,6 +102,17 @@ func listen(port int) (net.Listener, error) {
 	}
 	log.Printf("port %d indisponible (%v), utilisation d'un port libre", port, err)
 	return net.Listen("tcp", "127.0.0.1:0")
+}
+
+// alreadyRunning indique si une instance d'Open ChirpStack répond déjà sur ce port.
+func alreadyRunning(port int) bool {
+	client := &http.Client{Timeout: 700 * time.Millisecond}
+	resp, err := client.Get("http://127.0.0.1:" + strconv.Itoa(port) + pingPath)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusOK && resp.Header.Get(pingHeader) == "1"
 }
 
 func openBrowser(url string) error {

@@ -13,7 +13,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	csapi "chirpstack-toolbox/internal/csapi"
+	csapi "open-chirpstack/internal/csapi"
 )
 
 const testPort = 8765
@@ -177,6 +177,41 @@ func TestSecurityChecks(t *testing.T) {
 	rec = do(h, "GET", "/", nil)
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "ok") {
 		t.Errorf("page d'accueil: %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestRedirectGivesClearError(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "https://chirpstack.example.com"+r.URL.Path, http.StatusMovedPermanently)
+	}))
+	defer target.Close()
+
+	rec := do(newTestServer(), "GET", "/api/tenants?limit=10", map[string]string{headerServer: target.URL})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, corps = %s", rec.Code, rec.Body)
+	}
+	if !strings.Contains(rec.Body.String(), "https://chirpstack.example.com") {
+		t.Fatalf("message sans l'adresse de redirection : %s", rec.Body)
+	}
+}
+
+func TestStaticHeaders(t *testing.T) {
+	srv := newServer(fstest.MapFS{"index.html": {Data: []byte("ok")}, "js/app.js": {Data: []byte("1")}}, testPort)
+	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8765/js/app.js", nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/javascript") {
+		t.Fatalf("Content-Type = %q", ct)
+	}
+	if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "script-src 'self'") {
+		t.Fatalf("CSP absente : %q", csp)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8765"+pingPath, nil)
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || rec.Header().Get(pingHeader) != "1" {
+		t.Fatalf("ping : code %d", rec.Code)
 	}
 }
 

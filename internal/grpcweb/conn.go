@@ -89,6 +89,11 @@ func (c *Conn) Invoke(ctx context.Context, method string, args, reply any, _ ...
 		if ctx.Err() != nil {
 			return status.FromContextError(ctx.Err()).Err()
 		}
+		var redirect *RedirectError
+		if errors.As(err, &redirect) {
+			return status.Errorf(codes.FailedPrecondition,
+				"le serveur %s redirige vers %s : utilisez directement cette adresse", c.baseURL, redirect.Location)
+		}
 		return status.Errorf(codes.Unavailable, "impossible de joindre ChirpStack (%s) : %v", c.baseURL, unwrapURLError(err))
 	}
 	defer resp.Body.Close()
@@ -97,7 +102,7 @@ func (c *Conn) Invoke(ctx context.Context, method string, args, reply any, _ ...
 		return httpStatusError(resp)
 	}
 	ct := resp.Header.Get("Content-Type")
-	if !strings.HasPrefix(ct, "application/grpc-web") {
+	if !strings.HasPrefix(ct, "application/grpc-web") || strings.HasPrefix(ct, "application/grpc-web-text") {
 		return status.Errorf(codes.Unimplemented,
 			"le serveur %s ne répond pas comme une API ChirpStack (Content-Type %q) : vérifiez l'URL", c.baseURL, ct)
 	}
@@ -201,6 +206,22 @@ func httpStatusError(resp *http.Response) error {
 		c = codes.Unknown
 	}
 	return status.Error(c, fmt.Sprintf("HTTP %d depuis %s%s", resp.StatusCode, resp.Request.URL.Host, detail))
+}
+
+// RedirectError signale une redirection HTTP (typiquement http → https derrière un proxy).
+// Elle n'est pas suivie : un POST redirigé deviendrait un GET sans corps.
+type RedirectError struct{ Location string }
+
+func (e *RedirectError) Error() string { return "redirection vers " + e.Location }
+
+// NoRedirect s'utilise comme http.Client.CheckRedirect.
+func NoRedirect(req *http.Request, _ []*http.Request) error {
+	// On retire la méthode gRPC (/api.Service/Methode) pour proposer l'adresse de base.
+	base := req.URL.Scheme + "://" + req.URL.Host + req.URL.Path
+	if i := strings.LastIndex(base, "/api."); i > 0 {
+		base = base[:i]
+	}
+	return &RedirectError{Location: base}
 }
 
 func unwrapURLError(err error) error {

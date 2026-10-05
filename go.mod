@@ -1,4 +1,4 @@
-module chirpstack-toolbox
+module open-chirpstack
 
 go 1.26.0
 
