@@ -28,6 +28,16 @@ export function mount(root, { navigate }) {
     let dupMode = 'skip'; // skip | update
     let onlyErrors = false;
     let manualRows = Array.from({ length: 5 }, () => ({ dev_eui: '', name: '', app_key: '', description: '' }));
+
+    // Derniers réglages utilisés pour cette application (gain de temps à l'import suivant).
+    const remembered = store.prefs().importDefaults?.[app.id] || {};
+    if (session.deviceProfiles.some((p) => p.id === remembered.dp)) defaultDp = remembered.dp;
+    if (store.profiles().some((p) => p.id === remembered.profile)) importProfileId = remembered.profile;
+    if (remembered.dup === 'update') dupMode = 'update';
+    const remember = () => {
+        const all = store.prefs().importDefaults || {};
+        store.setPrefs({ importDefaults: { ...all, [app.id]: { dp: defaultDp, profile: importProfileId, dup: dupMode } } });
+    };
     let existing = null; // Set des DevEUI déjà présents dans l'application
 
     const importProfile = () => store.profiles().find((p) => p.id === importProfileId) || null;
@@ -45,7 +55,8 @@ export function mount(root, { navigate }) {
         const seen = new Map();
         const tagDefs = tagCols.filter((t) => t.checked);
         return src.rows.map((r, i) => {
-            const line = src.kind === 'manual' ? i + 1 : i + 2;
+            const line = r._line ?? i + 2;
+            const exists = (eui) => !!(eui && existing?.has(eui));
             const errors = [];
             const warns = [];
             const cell = (field) => (mapping[field] ? r[mapping[field]] ?? '' : '');
@@ -70,9 +81,14 @@ export function mount(root, { navigate }) {
             let dp = null;
             if (dpRaw) {
                 dp = UUID.test(dpRaw) ? session.deviceProfiles.find((p) => p.id === dpRaw.toLowerCase()) : byName.get(dpRaw.toLowerCase());
-                if (!dp) errors.push(['device_profile', `Device Profile inconnu : « ${dpRaw} »`]);
+                if (!dp) {
+                    const low = dpRaw.toLowerCase();
+                    const close = session.deviceProfiles.filter((p) => p.name.toLowerCase().includes(low) || low.includes(p.name.toLowerCase()));
+                    errors.push(['device_profile', `Device Profile inconnu : « ${dpRaw} »${close.length === 1 ? ` — vouliez-vous dire « ${close[0].name} » ?` : ''}`]);
+                }
             } else if (defaultDp) dp = session.deviceProfiles.find((p) => p.id === defaultDp);
-            else errors.push(['device_profile', 'Device Profile manquant : choisissez-en un par défaut']);
+            // Device existant mis à jour : sans profil indiqué, il garde le sien.
+            else if (!(exists(devEui) && dupMode === 'update')) errors.push(['device_profile', 'Device Profile manquant : choisissez-en un par défaut']);
 
             const tags = {};
             for (const t of tagDefs) {
@@ -89,10 +105,12 @@ export function mount(root, { navigate }) {
                 }
             }
 
-            const name = String(cell('name')).trim() || devEui;
-            if (!cell('name')) warns.push('nom absent : le DevEUI sera utilisé');
-            const exists = !!(devEui && existing?.has(devEui));
-            return { line, devEui, name, description: String(cell('description')).trim(), dp, nwkKey, appKey, joinEui, tags, errors, warns, exists };
+            const rawName = String(cell('name')).trim();
+            const name = rawName || devEui;
+            if (!rawName) warns.push('nom absent : le DevEUI sera utilisé');
+            // Pour une mise à jour, seuls les champs réellement fournis par le fichier sont transmis.
+            const description = mapping.description ? String(cell('description')).trim() : undefined;
+            return { line, devEui, name, rawName, description, dp, dpFromCol: !!dpRaw, nwkKey, appKey, joinEui, tags, errors, warns, exists: exists(devEui) };
         });
     }
 
@@ -182,7 +200,7 @@ export function mount(root, { navigate }) {
 
             <div class="mt"><span class="label">Si le DevEUI existe déjà dans l'application</span>
                 <div class="seg"><label><input type="radio" name="dup" value="skip" ${dupMode === 'skip' ? 'checked' : ''}> L'ignorer</label><label><input type="radio" name="dup" value="update" ${dupMode === 'update' ? 'checked' : ''}> Le mettre à jour</label></div>
-                <p class="hint">« Mettre à jour » modifie nom, profil, tags (fusionnés) et clés. Le device n'est jamais supprimé : historique et session sont conservés.</p></div>
+                <p class="hint">« Mettre à jour » ne modifie que ce que le fichier contient (nom, description, profil, tags fusionnés, clés) ; le profil par défaut ne s'applique qu'aux nouveaux devices. Le device n'est jamais supprimé : historique et session sont conservés.</p></div>
         </div>`;
     }
 
@@ -219,8 +237,8 @@ export function mount(root, { navigate }) {
                     <td class="dim mono small">${r.line}</td>
                     <td class="eui ${cellCls(r, 'dev_eui')}">${r.devEui || '—'}</td>
                     <td class="ellipsis">${r.name}</td>
-                    <td class="ellipsis small ${cellCls(r, 'device_profile')}">${r.dp?.name || '—'}</td>
-                    ${keyCols ? html`<td class="eui small ${cellCls(r, 'key')}">${r.nwkKey ? r.nwkKey.slice(0, 6) + '…' + r.nwkKey.slice(-4) : '—'}</td>` : ''}
+                    <td class="ellipsis small ${cellCls(r, 'device_profile')}">${r.dp?.name || (r.exists ? html`<span class="dim">inchangé</span>` : '—')}</td>
+                    ${keyCols ? html`<td class="eui small nowrap ${cellCls(r, 'key')}">${r.nwkKey ? r.nwkKey.slice(0, 6) + '…' + r.nwkKey.slice(-4) : '—'}</td>` : ''}
                     <td>${Object.keys(r.tags).length ? html`<div class="tags">${Object.entries(r.tags).slice(0, 3).map(([k, v]) => html`<span class="tag"><span class="k">${k}</span><span class="v">${v}</span></span>`)}${Object.keys(r.tags).length > 3 ? html`<span class="tag more">+${Object.keys(r.tags).length - 3}</span>` : ''}</div>` : html`<span class="dim">—</span>`}</td>
                     <td class="small">${r.errors.length ? html`<span class="err">✗ ${r.errors.map((e) => e[1]).join(' · ')}</span>` : r.exists ? html`<span class="${dupMode === 'update' ? 'warn' : 'dim'}">↻ existe — ${dupMode === 'update' ? 'mis à jour' : 'ignoré'}</span>` : html`<span class="ok">✓ nouveau</span>`}</td>
                 </tr>`) : html`<tr><td colspan="7" class="empty">Aucune ligne.</td></tr>`}</tbody>
@@ -313,12 +331,13 @@ export function mount(root, { navigate }) {
     }
 
     function manualToSource() {
-        const rows = manualRows.filter((r) => Object.values(r).some((v) => String(v).trim()));
+        const withLine = (r, line) => Object.defineProperty({ ...r }, '_line', { value: line, enumerable: false });
+        const rows = manualRows.map((r, i) => withLine(r, i + 1)).filter((r) => Object.values(r).some((v) => String(v).trim()));
         if (!rows.length) {
             src = null;
             return;
         }
-        src = { headers: MANUAL_COLS, rows: rows.map((r) => ({ ...r })), numeric: new Set(), source: 'saisie directe', kind: 'manual' };
+        src = { headers: MANUAL_COLS, rows, numeric: new Set(), source: 'saisie directe', kind: 'manual' };
         mapping = { dev_eui: 'dev_eui', name: 'name', key: 'app_key', description: 'description' };
         tagCols = [];
         if (existing === null) checkExisting();
@@ -378,6 +397,7 @@ export function mount(root, { navigate }) {
         }
         if (t.dataset.tagcol !== undefined) tagCols[Number(t.dataset.tagcol)].checked = t.checked;
         if (t.name === 'dup') dupMode = t.value;
+        if (t.id === 'i-dp' || t.id === 'i-prof' || t.name === 'dup') remember();
         if (t.id === 'i-onlyerr') { onlyErrors = t.checked; return drawCheck(); }
         if (t.dataset.c || t.dataset.fk !== undefined || t.dataset.fv !== undefined || t.dataset.reqVal !== undefined) return;
         drawConfig();
@@ -385,9 +405,9 @@ export function mount(root, { navigate }) {
 
     on(root, 'click', {
         tab: (el) => {
+            // Changer d'onglet ne jette pas les données déjà chargées : c'est la nouvelle saisie qui les remplace.
             tab = el.dataset.v;
-            if (tab === 'manual') manualToSource();
-            else if (src?.kind === 'manual') src = null;
+            if (tab === 'manual' && (!src || src.kind === 'manual')) manualToSource();
             draw();
             if (tab === 'paste') $('#i-paste', root)?.focus();
             if (tab === 'manual') $('#i-manual [data-c="dev_eui"]', root)?.focus();
@@ -399,8 +419,8 @@ export function mount(root, { navigate }) {
                 const data = readPasted(text);
                 // Une seule colonne de DevEUI sans en-tête : on l'accepte telle quelle.
                 if (data.headers.length === 1 && isHex(normHex(data.headers[0]), 16)) {
-                    data.rows.unshift({ [data.headers[0]]: data.headers[0] });
-                    data.rows = data.rows.map((r) => ({ dev_eui: Object.values(r)[0] }));
+                    const values = [data.headers[0], ...data.rows.map((r) => Object.values(r)[0])];
+                    data.rows = values.map((v, i) => Object.defineProperty({ dev_eui: v }, '_line', { value: i + 1, enumerable: false }));
                     data.headers = ['dev_eui'];
                 }
                 setSource(data);
@@ -446,12 +466,23 @@ export function mount(root, { navigate }) {
             items: rows,
             label: (r) => `ligne ${r.line} · ${r.name}`,
             run: async (r, ctx) => {
-                const device = { devEui: r.devEui, name: r.name, description: r.description, applicationId: app.id, deviceProfileId: r.dp.id, tags: r.tags, ...(r.joinEui ? { joinEui: r.joinEui } : {}) };
+                // Mise à jour : uniquement ce que le fichier fournit (nom, description, profil, JoinEUI, tags, clés).
+                const update = () => ops.overwriteDevice({
+                    devEui: r.devEui,
+                    name: r.rawName || undefined,
+                    description: r.description,
+                    deviceProfileId: r.dpFromCol ? r.dp.id : undefined,
+                    joinEui: r.joinEui || undefined,
+                    tags: r.tags,
+                    nwkKey: r.nwkKey,
+                    appKey: r.appKey,
+                });
                 if (r.exists && dupMode === 'update') {
-                    await ops.overwriteDevice({ ...device, nwkKey: r.nwkKey, appKey: r.appKey });
+                    await update();
                     updated.push(r.devEui);
                     return 'mis à jour';
                 }
+                const device = { devEui: r.devEui, name: r.name, description: r.description ?? '', applicationId: app.id, deviceProfileId: r.dp.id, tags: r.tags, ...(r.joinEui ? { joinEui: r.joinEui } : {}) };
                 try {
                     await ops.createDevice(device);
                 } catch (e) {
@@ -462,7 +493,7 @@ export function mount(root, { navigate }) {
                     if (where && where !== app.id) throw new Error(`existe déjà dans l'application « ${appName(where)} » (utilisez Migrer)`);
                     if (!where) throw new Error('existe déjà dans un autre tenant');
                     if (dupMode !== 'update') throw new Error('existe déjà dans cette application');
-                    await ops.overwriteDevice({ ...device, nwkKey: r.nwkKey, appKey: r.appKey });
+                    await update();
                     updated.push(r.devEui);
                     return 'mis à jour';
                 }

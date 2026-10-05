@@ -235,7 +235,7 @@ export function mount(root, { navigate, chooseApp }) {
         if (e.target.id === 'd-tag') { f.tag = e.target.value; onSearch(); }
     });
     root.addEventListener('change', (e) => {
-        if (e.target.id === 'd-profile') { f.profile = e.target.value; shown = PAGE; draw(); }
+        if (e.target.id === 'd-profile') { f.profile = e.target.value; shown = PAGE; draw({ keepFocus: true }); }
     });
     root.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && e.target.id === 'd-q' && f.q) { f.q = ''; draw({ keepFocus: true }); }
@@ -292,6 +292,7 @@ export function mount(root, { navigate, chooseApp }) {
     });
 
     const selected = () => list.filter((d) => sel.has(d.devEui));
+    let closeDrawer = () => {};
 
     // ---------- Export ----------
     function exportDialog(rows) {
@@ -492,8 +493,7 @@ export function mount(root, { navigate, chooseApp }) {
                 items: rows,
                 label: (x) => x.name || x.devEui,
                 run: async (x, ctx) => {
-                    const r = await ops.migrateDevice(x.devEui, dest, ctx);
-                    snaps.push(r.snap);
+                    const r = await ops.migrateDevice(x.devEui, dest, ctx, (s) => snaps.push(s));
                     moved.push(x.devEui);
                     return r.message;
                 },
@@ -559,8 +559,7 @@ export function mount(root, { navigate, chooseApp }) {
     function openDevice(eui) {
         const d0 = list?.find((x) => x.devEui === eui);
         if (!d0) return;
-        document.querySelector('.drawer')?.remove();
-        document.querySelector('.drawer-scrim')?.remove();
+        closeDrawer();
         const scrim = document.createElement('div');
         scrim.className = 'drawer-scrim';
         const dr = document.createElement('aside');
@@ -574,16 +573,19 @@ export function mount(root, { navigate, chooseApp }) {
         let metrics = null;
         let editing = false;
 
+        const onEsc = (e) => { if (e.key === 'Escape' && !document.querySelector('dialog[open]')) close(); };
         const close = () => {
             dr.remove();
             scrim.remove();
-            document.removeEventListener('keydown', esc);
+            document.removeEventListener('keydown', onEsc);
+            closeDrawer = () => {};
         };
-        const esc = (e) => { if (e.key === 'Escape' && !document.querySelector('dialog[open]')) close(); };
-        document.addEventListener('keydown', esc);
+        closeDrawer = close;
+        document.addEventListener('keydown', onEsc);
         scrim.addEventListener('click', close);
 
-        const chirpstackLink = () => (api.isDemo() ? null : `${api.serverUrl()}/#/tenants/${session.tenant.id}/applications/${app.id}/devices/${eui}`);
+        // Lien vers l'interface ChirpStack (pas en démo, ni en mode REST où l'adresse est celle de l'API).
+        const chirpstackLink = () => (api.isDemo() || api.mode() === 'rest' ? null : `${api.serverUrl()}/#/tenants/${session.tenant.id}/applications/${app.id}/devices/${eui}`);
 
         function metricsBlock() {
             if (!metrics) return html`<div class="skeleton" style="height:140px"></div>`;
@@ -737,8 +739,7 @@ export function mount(root, { navigate, chooseApp }) {
                     draw();
                     toast('Device supprimé.', { action: 'Annuler', onAction: async () => {
                         try {
-                            await ops.createDevice(snap.device);
-                            if (snap.keys) await ops.setKeys(eui, snap.keys);
+                            await ops.restore(snap);
                             invalidate(app.id);
                             load();
                             toast('Device recréé.');
@@ -792,7 +793,6 @@ export function mount(root, { navigate, chooseApp }) {
     return () => {
         alive = false;
         offDevices();
-        document.querySelector('.drawer')?.remove();
-        document.querySelector('.drawer-scrim')?.remove();
+        closeDrawer();
     };
 }

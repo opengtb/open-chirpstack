@@ -19,6 +19,17 @@ export function mount(root, { navigate }) {
     let list = null;
     let showAll = false;
 
+    // Calcule les tags après application d'une ligne du fichier.
+    function apply(current, row, keys) {
+        const out = mode === 'replace' ? {} : { ...current };
+        for (const c of keys) {
+            const v = String(row[c.column] ?? '').trim();
+            if (v !== '') out[c.key] = v;
+            else if (empty === 'remove') delete out[c.key];
+        }
+        return out;
+    }
+
     function diff() {
         if (!src || !euiCol || !list) return [];
         const byEui = new Map(list.map((d) => [d.devEui, d]));
@@ -29,17 +40,12 @@ export function mount(root, { navigate }) {
             if (!eui) return { line: i + 2, eui, error: 'DevEUI vide' };
             if (!d) return { line: i + 2, eui, error: 'absent de cette application' };
             const before = { ...(d.tags || {}) };
-            const after = mode === 'replace' ? {} : { ...before };
-            for (const c of keys) {
-                const v = String(r[c.column] ?? '').trim();
-                if (v !== '') after[c.key] = v;
-                else if (empty === 'remove') delete after[c.key];
-            }
+            const after = apply(before, r, keys);
             const changes = [];
             for (const k of new Set([...Object.keys(before), ...Object.keys(after)])) {
                 if (before[k] !== after[k]) changes.push({ k, from: before[k], to: after[k] });
             }
-            return { line: i + 2, eui, d, after, changes };
+            return { line: i + 2, eui, d, row: r, after, changes };
         });
     }
 
@@ -112,7 +118,7 @@ export function mount(root, { navigate }) {
         if (t.id === 't-eui') {
             euiCol = t.value;
             const prev = cols;
-            cols = tagCandidates(src.headers, { dev_eui: euiCol }).map((c) => ({ ...c, checked: prev.find((p) => p.column === c.column)?.checked ?? c.checked }));
+            cols = tagCandidates(src.headers, { ...autoMap(src.headers), dev_eui: euiCol }).map((c) => ({ ...c, checked: prev.find((p) => p.column === c.column)?.checked ?? c.checked }));
         }
         if (t.dataset.col !== undefined) cols[Number(t.dataset.col)].checked = t.checked;
         if (t.name === 'tm') mode = t.value;
@@ -131,7 +137,12 @@ export function mount(root, { navigate }) {
 
     on(root, 'click', {
         run: async () => {
-            const changed = diff().filter((r) => r.changes?.length);
+            const all = diff();
+            const keys = cols.filter((c) => c.checked);
+            // Un DevEUI présent plusieurs fois : seule sa dernière ligne compte (évite deux écritures concurrentes).
+            const last = new Map();
+            for (const r of all) if (r.changes?.length) last.set(r.eui, r);
+            const changed = [...last.values()];
             if (mode === 'replace') {
                 const ok = await confirmDialog({ title: 'Remplacer tous les tags ?', message: html`Sur <strong>${plural(changed.length, 'device')}</strong>, les tags absents du fichier seront supprimés.`, confirm: 'Remplacer', danger: true });
                 if (!ok) return;
@@ -143,8 +154,9 @@ export function mount(root, { navigate }) {
                 items: changed,
                 label: (r) => r.d.name || r.eui,
                 run: async (r) => {
-                    await ops.updateDevice(r.eui, (dv) => ({ ...dv, tags: r.after }));
-                    patches.push({ devEui: r.eui, tags: r.after });
+                    // Recalcul sur les tags lus à l'instant sur le serveur (pas sur la liste en cache).
+                    const dev = await ops.updateDevice(r.eui, (dv) => ({ ...dv, tags: apply(dv.tags, r.row, keys) }));
+                    patches.push({ devEui: r.eui, tags: dev.tags });
                     return `${r.changes.length} changement(s)`;
                 },
                 after: () => [{ label: 'Voir les devices', onClick: () => navigate('devices') }],

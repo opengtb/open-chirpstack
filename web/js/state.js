@@ -1,6 +1,7 @@
 // État de la session : contexte (tenant, application) et cache des devices par application.
 
 import * as api from './api.js';
+import { resetMoveDetection } from './ops.js';
 
 export const session = {
     connected: false,
@@ -51,15 +52,17 @@ export function battery(d) {
 
 // ---------- Contexte ----------
 export async function loadTenantData(tenant) {
-    session.tenant = tenant;
     const [apps, dps] = await Promise.all([
         api.listAll(`/api/applications?tenantId=${encodeURIComponent(tenant.id)}`),
         api.listAll(`/api/device-profiles?tenantId=${encodeURIComponent(tenant.id)}`),
     ]);
+    // Le contexte ne change qu'une fois tout chargé : un échec laisse l'ancien tenant intact.
+    session.tenant = tenant;
     session.apps = apps;
     session.deviceProfiles = dps;
     session.appCounts = {};
     cache.clear();
+    resetMoveDetection();
     refreshAppCounts();
 }
 
@@ -95,20 +98,32 @@ export function loadedAt(appId) {
     return cache.get(appId)?.loadedAt || null;
 }
 
+let generation = 0;
+
 export async function devices(appId, { force = false, onProgress } = {}) {
     const entry = cache.get(appId);
     if (entry?.devices && !force) return entry.devices;
-    if (entry?.loading && !force) return entry.loading;
-    const loading = api.listAll(`/api/devices?applicationId=${encodeURIComponent(appId)}`, onProgress).then((list) => {
-        cache.set(appId, { devices: list, loadedAt: Date.now() });
-        session.appCounts[appId] = list.length;
-        emit('devices', { appId });
-        return list;
-    }).catch((err) => {
-        cache.delete(appId);
-        throw err;
-    });
-    cache.set(appId, { ...(entry || {}), loading });
+    if (entry?.loading && !force) {
+        if (onProgress) entry.listeners.add(onProgress);
+        return entry.loading;
+    }
+    // Chaque chargement porte un numéro : un résultat arrivé après une invalidation est ignoré.
+    const gen = ++generation;
+    const listeners = new Set(onProgress ? [onProgress] : []);
+    const loading = api.listAll(`/api/devices?applicationId=${encodeURIComponent(appId)}`, (n, t) => listeners.forEach((fn) => fn(n, t)))
+        .then((list) => {
+            if (cache.get(appId)?.gen === gen) {
+                cache.set(appId, { devices: list, loadedAt: Date.now(), gen });
+                session.appCounts[appId] = list.length;
+                emit('devices', { appId });
+            }
+            return list;
+        })
+        .catch((err) => {
+            if (cache.get(appId)?.gen === gen) cache.delete(appId);
+            throw err;
+        });
+    cache.set(appId, { ...(entry?.devices && !force ? entry : {}), loading, listeners, gen });
     return loading;
 }
 

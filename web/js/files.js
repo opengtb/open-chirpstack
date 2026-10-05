@@ -110,19 +110,23 @@ export function parseDelimited(text, sep) {
 }
 
 // Tableau brut (première ligne = en-têtes) → { headers, rows: [{entête: valeur}] }.
+const isEmptyRow = (r) => !r || !r.some((c) => String(c ?? '').trim() !== '');
+
 function toRecords(matrix, numericCells) {
-    const nonEmpty = matrix.filter((r) => r.some((c) => String(c ?? '').trim() !== ''));
+    // On garde le numéro de ligne d'origine (1 = première ligne du fichier) pour les messages d'erreur.
+    const nonEmpty = matrix.map((r, i) => ({ r, line: i + 1 })).filter((x) => !isEmptyRow(x.r));
     if (nonEmpty.length === 0) throw new Error('Le fichier est vide.');
     const seen = {};
-    const headers = nonEmpty[0].map((h, i) => {
+    const headers = nonEmpty[0].r.map((h, i) => {
         let name = String(h ?? '').trim() || `colonne_${i + 1}`;
         if (seen[name]) name = `${name}_${++seen[name]}`;
         else seen[name] = 1;
         return name;
     });
-    const rows = nonEmpty.slice(1).map((r) => {
+    const rows = nonEmpty.slice(1).map(({ r, line }) => {
         const o = {};
         headers.forEach((h, i) => { o[h] = String(r[i] ?? '').trim(); });
+        Object.defineProperty(o, '_line', { value: line, enumerable: false });
         return o;
     });
     // numericCells : indices [ligne de données, colonne] des cellules Excel de type nombre
@@ -140,18 +144,20 @@ export async function readFile(file) {
         const name = wb.SheetNames[0];
         const ws = wb.Sheets[name];
         // Texte tel qu'affiché dans Excel (raw:false) pour garder les zéros de tête formatés.
-        const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false, blankrows: false });
+        const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false, blankrows: true });
         const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1');
         const numericCells = [];
         let dataRow = -1;
+        // Même critère de ligne vide que toRecords, appliqué au texte affiché (matrix).
         for (let r = range.s.r; r <= range.e.r; r++) {
-            let any = false;
-            for (let c = range.s.c; c <= range.e.c; c++) {
-                const cell = ws[XLSX.utils.encode_cell({ r, c })];
-                if (cell && String(cell.v ?? '').trim() !== '') any = true;
-                if (cell && cell.t === 'n' && dataRow >= 0) numericCells.push([dataRow, c - range.s.c]);
+            if (isEmptyRow(matrix[r - range.s.r])) continue;
+            if (dataRow >= 0) {
+                for (let c = range.s.c; c <= range.e.c; c++) {
+                    const cell = ws[XLSX.utils.encode_cell({ r, c })];
+                    if (cell && cell.t === 'n') numericCells.push([dataRow, c - range.s.c]);
+                }
             }
-            if (any) dataRow++;
+            dataRow++;
         }
         return { ...toRecords(matrix, numericCells), source: `${file.name} · feuille « ${name} »`, kind: 'excel' };
     }
@@ -184,7 +190,7 @@ export const FIELDS = [
 ];
 
 // Colonnes jamais proposées comme tags par défaut (issues d'un export, état du device…).
-const NOT_TAGS = ['name', 'nom', 'description', 'devicename', 'deviceprofile', 'deviceprofileid', 'createdat', 'updatedat', 'lastseenat', 'lastseen', 'derniervu', 'status', 'statut', 'battery', 'batterie', 'margin', 'application', 'applicationid', 'applicationname', 'deviceprofilename', 'tenant', 'tenantid', 'nwkkey', 'appkey', 'genappkey', 'joineui', 'appeui', 'deveui', 'devaddr', 'nwkskey', 'appskey'];
+const NOT_TAGS = ['key', 'cle', 'cleapp', 'applicationkey', 'name', 'nom', 'description', 'devicename', 'deviceprofile', 'deviceprofileid', 'createdat', 'updatedat', 'lastseenat', 'lastseen', 'derniervu', 'status', 'statut', 'battery', 'batterie', 'margin', 'application', 'applicationid', 'applicationname', 'deviceprofilename', 'tenant', 'tenantid', 'nwkkey', 'appkey', 'genappkey', 'joineui', 'appeui', 'deveui', 'devaddr', 'nwkskey', 'appskey'];
 
 export function autoMap(headers) {
     const s = headers.map(simplify);
@@ -230,7 +236,9 @@ export function tagCandidates(headers, mapping) {
 
 // ---------- Export ----------
 const csvCell = (v) => {
-    const s = String(v ?? '');
+    let s = String(v ?? '');
+    // Une cellule commençant par = + - @ serait exécutée comme formule par Excel.
+    if (/^[=+\-@\t\r]/.test(s) && !/^-?\d+([.,]\d+)?$/.test(s)) s = `'${s}`;
     return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 

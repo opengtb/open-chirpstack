@@ -5,6 +5,7 @@ import { ApiError, del, get, humanize, post, put } from './api.js';
 const p = (eui) => `/api/devices/${encodeURIComponent(eui)}`;
 const is404 = (e) => e instanceof ApiError && e.status === 404;
 const is409 = (e) => e instanceof ApiError && e.status === 409;
+const ZERO_KEY = '00000000000000000000000000000000';
 
 export async function getDevice(eui) {
     return get(p(eui));
@@ -20,8 +21,9 @@ export async function getKeys(eui) {
     }
 }
 
-export async function setKeys(eui, { nwkKey, appKey }) {
-    const deviceKeys = { devEui: eui, nwkKey, appKey: appKey || '00000000000000000000000000000000' };
+// Écrit les clés telles quelles (nwkKey, appKey, genAppKey) : création, ou mise à jour si elles existent déjà.
+export async function setKeys(eui, keys) {
+    const deviceKeys = { ...keys, devEui: eui, appKey: keys.appKey || ZERO_KEY };
     try {
         await post(`${p(eui)}/keys`, { deviceKeys });
     } catch (e) {
@@ -57,6 +59,15 @@ export async function deleteDevice(eui) {
     await del(p(eui));
 }
 
+// Suppression tolérante : un 404 (déjà supprimé, par exemple après un réessai) n'est pas une erreur.
+async function deleteIfPresent(eui) {
+    try {
+        await deleteDevice(eui);
+    } catch (e) {
+        if (!is404(e)) throw e;
+    }
+}
+
 // Copie complète d'un device (fiche, clés, session) pour sauvegarde ou restauration.
 export async function snapshot(eui) {
     const full = await getDevice(eui);
@@ -70,7 +81,8 @@ export async function snapshot(eui) {
     return { device: full.device, keys, activation };
 }
 
-async function restore(snap, ctx) {
+// Recrée un device depuis une copie (fiche, clés, puis session si possible).
+export async function restore(snap, ctx) {
     await createDevice(snap.device);
     if (snap.keys) await setKeys(snap.device.devEui, snap.keys);
     if (snap.activation) {
@@ -83,71 +95,76 @@ async function restore(snap, ctx) {
 }
 
 // ChirpStack ne permet pas toujours de changer l'application d'un device par simple mise à jour :
-// on le vérifie sur le premier device, puis on choisit la méthode pour toute la série.
-let inPlaceMove = null; // null = inconnu, true/false après le premier essai
-
-/**
- * Déplace un device vers une autre application.
- * 1. Essai de déplacement direct (conserve tout).
- * 2. Sinon : copie (fiche + clés + session) → suppression → recréation dans la cible.
- *    Si la recréation échoue, le device est restauré dans son application d'origine.
- * Renvoie la copie de sauvegarde.
- */
-export async function migrateDevice(eui, destAppId, ctx) {
-    const snap = await snapshot(eui);
-    if (snap.device.applicationId === destAppId) return { snap, message: 'déjà dans cette application' };
-
-    if (inPlaceMove !== false) {
-        try {
-            await put(p(eui), { device: { ...snap.device, applicationId: destAppId } });
-            const after = await getDevice(eui);
-            if (after.device.applicationId === destAppId) {
-                inPlaceMove = true;
-                return { snap, message: 'déplacé (clés et session conservées)' };
-            }
-        } catch {
-            /* méthode non supportée : repli */
-        }
-        inPlaceMove = false;
-    }
-
-    await deleteDevice(eui);
-    try {
-        await restore({ ...snap, device: { ...snap.device, applicationId: destAppId } }, ctx);
-    } catch (err) {
-        try {
-            await deleteDevice(eui).catch(() => {});
-            await restore(snap, ctx);
-        } catch (err2) {
-            throw new Error(`recréation impossible (${humanize(err)}) et restauration impossible (${humanize(err2)}). Utilisez la sauvegarde JSON pour le recréer.`);
-        }
-        throw new Error(`refusé par l'application cible (${humanize(err)}) : device remis dans son application d'origine`);
-    }
-    return { snap, message: snap.activation ? 'recréé avec clés et session' : snap.keys ? 'recréé avec ses clés' : 'recréé' };
-}
+// on le constate une fois par serveur, puis on choisit la méthode pour toute la série.
+let inPlaceMove = null; // null = inconnu, true/false une fois constaté
 
 export function resetMoveDetection() {
     inPlaceMove = null;
 }
 
 /**
+ * Déplace un device vers une autre application.
+ * 1. Essai de déplacement direct (conserve tout, y compris l'historique).
+ * 2. Sinon : copie (fiche + clés + session) → suppression → recréation dans la cible.
+ *    Si la recréation échoue, le device est restauré dans son application d'origine.
+ * onSnap(copie) est appelé avant toute modification, pour que la sauvegarde existe même en cas d'échec.
+ */
+export async function migrateDevice(eui, destAppId, ctx, onSnap) {
+    const snap = await snapshot(eui);
+    onSnap?.(snap);
+    if (snap.device.applicationId === destAppId) return { snap, message: 'déjà dans cette application' };
+
+    if (inPlaceMove !== false) {
+        let accepted = false;
+        try {
+            await put(p(eui), { device: { ...snap.device, applicationId: destAppId } });
+            accepted = true;
+        } catch (e) {
+            // Refus explicite de la méthode : on bascule. Toute autre erreur (réseau, droits) est remontée.
+            if (!(e instanceof ApiError) || ![400, 501].includes(e.status)) throw e;
+        }
+        if (accepted) {
+            const after = await getDevice(eui);
+            if (after.device.applicationId === destAppId) {
+                inPlaceMove = true;
+                return { snap, message: 'déplacé (historique, clés et session conservés)' };
+            }
+        }
+        inPlaceMove = false;
+    }
+
+    await deleteIfPresent(eui);
+    try {
+        await restore({ ...snap, device: { ...snap.device, applicationId: destAppId } }, ctx);
+    } catch (err) {
+        try {
+            await deleteIfPresent(eui);
+            await restore(snap, ctx);
+        } catch (err2) {
+            throw new Error(`recréation impossible (${humanize(err)}) et restauration impossible (${humanize(err2)}). Recréez-le depuis la sauvegarde JSON proposée à la fin.`);
+        }
+        throw new Error(`refusé par l'application cible (${humanize(err)}) : device remis dans son application d'origine`);
+    }
+    return { snap, message: snap.activation ? 'recréé avec clés et session' : snap.keys ? 'recréé avec ses clés' : 'recréé' };
+}
+
+/**
  * Met à jour un device existant à partir d'une ligne d'import (au lieu de le supprimer).
- * Seuls les champs renseignés sont modifiés ; les tags sont fusionnés.
+ * Seuls les champs fournis (non undefined) sont modifiés ; les tags sont fusionnés ; les clés existantes
+ * (AppKey 1.1, GenAppKey) sont conservées quand le fichier ne les précise pas.
  */
 export async function overwriteDevice(row) {
     const { device } = await getDevice(row.devEui);
-    const next = {
-        ...device,
-        name: row.name || device.name,
-        description: row.description ?? device.description,
-        deviceProfileId: row.deviceProfileId || device.deviceProfileId,
-        joinEui: row.joinEui || device.joinEui,
-        tags: { ...(device.tags || {}), ...row.tags },
-    };
-    const moved = next.applicationId !== row.applicationId;
+    const next = { ...device, tags: { ...(device.tags || {}), ...row.tags } };
+    for (const k of ['name', 'description', 'deviceProfileId', 'joinEui']) {
+        if (row[k] !== undefined) next[k] = row[k];
+    }
     await put(p(row.devEui), { device: next });
-    if (row.nwkKey) await setKeys(row.devEui, { nwkKey: row.nwkKey, appKey: row.appKey });
-    return { previous: device, moved };
+    if (row.nwkKey) {
+        const current = await getKeys(row.devEui);
+        await setKeys(row.devEui, { ...(current || {}), nwkKey: row.nwkKey, ...(row.appKey ? { appKey: row.appKey } : {}) });
+    }
+    return { previous: device };
 }
 
 // Recherche d'un device par DevEUI exact (null si absent).

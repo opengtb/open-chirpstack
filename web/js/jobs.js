@@ -36,6 +36,7 @@ export function runJob({ title, verb = 'traité(s)', items, label, run, concurre
             <div data-summary class="mt"></div>`,
         foot: html`<span class="left xs dim" data-hint>Ne fermez pas cette page pendant l'opération.</span>
             <button class="btn btn-danger" data-stop>${icon('stop')} Arrêter</button>`,
+        keepOpen: () => running,
     });
     const el = dlg.el;
     // Échap ne doit pas fermer la fenêtre pendant le traitement.

@@ -127,7 +127,7 @@ export function toast(message, { type = 'ok', action, onAction, duration = 4200 
 // ---------- Dialogues ----------
 // openDialog({ title, body, foot, wide, onMount }) → { el, close }.
 // Les boutons [data-close] ferment le dialogue ; la promesse `closed` est résolue avec la valeur passée à close().
-export function openDialog({ title, body, foot, wide = false, cls = '', onMount }) {
+export function openDialog({ title, body, foot, wide = false, cls = '', onMount, keepOpen }) {
     const dlg = document.createElement('dialog');
     dlg.className = `${wide ? 'wide' : ''} ${cls}`;
     render(dlg, html`
@@ -139,7 +139,16 @@ export function openDialog({ title, body, foot, wide = false, cls = '', onMount 
     const closed = new Promise((r) => { resolve = r; });
     let value;
     const close = (v) => { value = v; dlg.close(); };
-    dlg.addEventListener('close', () => { dlg.remove(); resolve(value); });
+    if (keepOpen) dlg.setAttribute('closedby', 'none');
+    dlg.addEventListener('close', () => {
+        // Fenêtre d'une opération en cours : elle se rouvre si le navigateur la ferme (Échap répété).
+        if (keepOpen?.()) {
+            dlg.showModal();
+            return;
+        }
+        dlg.remove();
+        resolve(value);
+    });
     dlg.addEventListener('click', (e) => {
         if (e.target === dlg) close();
         if (e.target.closest('[data-close]')) close();

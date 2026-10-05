@@ -46,10 +46,11 @@ export function mount(root, { chooseApp }) {
             <div class="table-wrap scroll"><table class="tbl"><thead><tr><th>Nom</th><th>DevEUI</th><th>Application</th><th>Device Profile</th><th>Dernier message</th><th>Statut</th></tr></thead><tbody>
             ${results.slice(0, 300).map((r) => {
                 const st = statusOf(r.d);
-                return html`<tr class="clickable" data-act="open" data-eui="${r.d.devEui}" data-app="${r.appId}">
+                const local = session.apps.some((a) => a.id === r.appId);
+                return html`<tr class="${local ? 'clickable' : ''}" ${local ? html`data-act="open"` : ''} data-eui="${r.d.devEui}" data-app="${r.appId}">
                     <td class="name">${r.d.name}${r.why ? html`<small>${r.why}</small>` : ''}</td>
                     <td class="eui nowrap">${r.d.devEui}<button class="btn btn-ghost btn-xs copy" data-act="copy" data-v="${r.d.devEui}" title="Copier">${icon('copy')}</button></td>
-                    <td class="small">${appName(r.appId)}</td>
+                    <td class="small">${local ? appName(r.appId) : html`<span class="dim">autre tenant</span>`}</td>
                     <td class="small ellipsis">${r.d.deviceProfileName || ''}</td>
                     <td class="small nowrap">${timeAgo(r.d.lastSeenAt)}</td>
                     <td><span class="status ${st}">${statusInfo(st).one}</span></td></tr>`;
@@ -122,9 +123,10 @@ export function mount(root, { chooseApp }) {
             } catch {
                 /* application illisible : ignorée */
             }
+            if (id !== runId) return;
             progress.done++;
             progress.label = `${progress.done} / ${apps.length} applications · ${fmtNum(found.length)} trouvé(s)`;
-            if (id === runId) drawOut();
+            drawOut();
         });
         if (id !== runId) return;
         progress = null;

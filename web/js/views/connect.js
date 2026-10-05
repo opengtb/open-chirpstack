@@ -253,6 +253,8 @@ export function mount(root, { onConnected }) {
 
     // Lien direct vers la démo : http://127.0.0.1:8765/?demo
     const wantsDemo = new URLSearchParams(location.search).has('demo');
+    // Le paramètre ne sert qu'une fois : sinon « se connecter à mon ChirpStack » relancerait la démo.
+    if (wantsDemo) history.replaceState(null, '', location.pathname + location.hash);
     fetch('/__open-chirpstack', { method: 'GET', cache: 'no-store' })
         .then((r) => r.ok && r.headers.get('X-Open-Chirpstack') === '1')
         .catch(() => false)

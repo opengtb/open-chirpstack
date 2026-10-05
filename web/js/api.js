@@ -25,6 +25,7 @@ export function disconnect() {
 
 export const isDemo = () => !!conn.demo;
 export const serverUrl = () => conn.url;
+export const mode = () => conn.mode;
 
 function cleanToken(t) {
     t = String(t || '').trim();
