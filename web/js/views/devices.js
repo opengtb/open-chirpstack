@@ -180,6 +180,7 @@ export function mount(root, { navigate, chooseApp }) {
             <span class="count"><strong>${fmtNum(sel.size)}</strong> sélectionné${sel.size > 1 ? 's' : ''}</span>
             ${notAllFiltered ? html`<button class="btn-link" data-act="selfiltered">+ sélectionner les ${fmtNum(rows.length)} filtrés</button>` : ''}
             <span class="spacer"></span>
+            <button class="btn btn-sm" data-act="bulk-history" title="Comparer leurs mesures">${icon('chart')} Historique</button>
             <button class="btn btn-sm" data-act="bulk-export">${icon('download')} Exporter</button>
             <button class="btn btn-sm" data-act="bulk-tags">${icon('tag')} Tags</button>
             <button class="btn btn-sm" data-act="bulk-profile">${icon('layers')} Profil</button>
@@ -295,6 +296,12 @@ export function mount(root, { navigate, chooseApp }) {
         selfiltered: () => { filtered().forEach((d) => sel.add(d.devEui)); draw(); },
         selnone: () => { sel.clear(); draw(); },
         'bulk-export': () => exportDialog(selected()),
+        'bulk-history': () => {
+            const chosen = selected().slice(0, 16);
+            if (sel.size > 16) toast('16 devices au maximum dans l\'historique : les 16 premiers sont proposés.', { type: 'warn' });
+            session.pendingHistory = { devices: chosen.map((d) => ({ eui: d.devEui, name: d.name })) };
+            navigate('historique');
+        },
         'bulk-tags': () => tagsDialog(selected()),
         'bulk-profile': () => profileDialog(selected()),
         'bulk-move': () => moveDialog(selected()),
@@ -747,7 +754,8 @@ export function mount(root, { navigate, chooseApp }) {
                     ${Object.keys(d.tags || {}).length ? html`<div class="tags">${Object.entries(d.tags).map(([k, v]) => html`<span class="tag"><span class="k">${k}</span><span class="v">${v}</span></span>`)}</div>` : html`<p class="dim small">Aucun tag.</p>`}
                     <h3 class="section-title" style="font-size:14px;margin-top:1.5rem">Historique
                         <span class="end row"><span class="seg">${Object.entries(PERIODS).map(([v, p]) => html`<button class="${period === v ? 'on' : ''}" data-act2="period" data-v="${v}">${p.label}</button>`)}</span>
-                        <button class="btn btn-sm btn-ghost" data-act2="csv" title="Exporter l'historique (CSV)" ${metrics && !metrics.error ? '' : 'disabled'}>${icon('download')}</button></span></h3>
+                        <button class="btn btn-sm btn-ghost" data-act2="csv" title="Exporter l'historique (CSV)" ${metrics && !metrics.error ? '' : 'disabled'}>${icon('download')}</button>
+                        <button class="btn btn-sm" data-act2="expand" title="Ouvrir dans l'outil d'historique">${icon('expand')} Agrandir</button></span></h3>
                     <div id="dv-metrics">${metricsBlock()}</div>`}
                 </div>`);
         }
@@ -793,6 +801,16 @@ export function mount(root, { navigate, chooseApp }) {
             if (act === 'period') { period = b.dataset.v; session.lastPeriod = period; drawDrawer(); loadMetrics(); }
             if (act === 'measure') { session.lastMeasure = b.dataset.k; render($('#dv-metrics', dr), metricsBlock()); }
             if (act === 'csv') exportHistory();
+            if (act === 'expand') {
+                const S = metrics && !metrics.error ? series() : { measures: [] };
+                const first = S.measures.find((m) => m.key === session.lastMeasure) || S.measures[0];
+                // Mesure affichée d'abord, puis les autres du device ; à défaut, la liaison radio.
+                const keys = first ? [first, ...S.measures.filter((m) => m !== first)].map((m) => ({ key: m.key, name: m.name, unit: m.unit, kind: m.kind })) : [{ key: '@rssi' }, { key: '@rx' }];
+                const d = list.find((x) => x.devEui === eui) || d0;
+                session.pendingHistory = { devEui: eui, name: d.name, keys, period: period === '1y' ? '1y' : period };
+                close();
+                navigate('historique');
+            }
             if (act === 'edit') {
                 if (!full) { b.classList.add('loading'); full = await ops.getDevice(eui).catch(() => null); }
                 editing = !!full;

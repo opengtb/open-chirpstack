@@ -14,6 +14,7 @@ import * as devicesView from './views/devices.js';
 import * as importView from './views/import.js';
 import * as tagsView from './views/tags.js';
 import * as searchView from './views/search.js';
+import * as historyView from './views/history.js';
 import * as settingsView from './views/settings.js';
 
 export const ROUTES = [
@@ -21,6 +22,7 @@ export const ROUTES = [
     { path: 'devices', label: 'devices', icon: 'list', view: devicesView, group: 'application', needsApp: true, count: true },
     { path: 'import', label: 'importer', icon: 'upload', view: importView, group: 'application', needsApp: true },
     { path: 'tags', label: 'tags par fichier', icon: 'tag', view: tagsView, group: 'application', needsApp: true },
+    { path: 'historique', label: 'historique', icon: 'chart', view: historyView, group: 'tenant' },
     { path: 'recherche', label: 'rechercher', icon: 'search', view: searchView, group: 'tenant' },
     { path: 'reglages', label: 'réglages', icon: 'settings', view: settingsView, group: 'outil' },
 ];
@@ -263,7 +265,8 @@ function teardown() {
 export function navigate(path, replace = false) {
     const route = ROUTES.find((r) => r.path === path) || ROUTES[0];
     const hash = `#/${route.path}`;
-    if (location.hash !== hash) {
+    const currentPath = location.hash.replace(/^#\/?/, '').split('?')[0];
+    if (currentPath !== route.path) {
         if (replace) history.replaceState(null, '', hash);
         else {
             location.hash = hash;

@@ -27,6 +27,7 @@ function commands(q) {
         }
     }
     list.push({ group: 'actions' });
+    list.push({ label: 'Ouvrir l\'historique des mesures', cmd: 'historique', icon: 'chart', run: () => navigate('historique') });
     if (session.app) list.push({ label: 'Recharger les devices de l\'application', cmd: 'refresh', icon: 'refresh', run: () => { invalidate(session.app.id); navigate('devices'); } });
     list.push({ label: 'Basculer clair / sombre', cmd: 'manu', icon: 'sparkles', run: () => setTheme('manu') });
     list.push({ label: 'Se déconnecter', cmd: 'logout', icon: 'logout', run: () => logout() });

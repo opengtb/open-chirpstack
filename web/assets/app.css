@@ -59,6 +59,14 @@
     --red: #c0413f;
     --red-glow: #c0413f14;
     --banner: #e3ecdf;
+    --chart-1: #2a8a2a;
+    --chart-2: #2a8aa3;
+    --chart-3: #c98a1f;
+    --chart-4: #a04d96;
+    --chart-5: #6b6df0;
+    --chart-6: #c0413f;
+    --chart-7: #3f9e7f;
+    --chart-8: #8a6a3a;
     --shadow: 0 10px 30px -12px #0a0d1033;
     --radius: 3px;
     color-scheme: light;
@@ -86,6 +94,14 @@
     --red: #f47174;
     --red-glow: #f4717418;
     --banner: #102014;
+    --chart-1: #6ce26c;
+    --chart-2: #67cae0;
+    --chart-3: #f5b94a;
+    --chart-4: #d97cd1;
+    --chart-5: #a8b3f4;
+    --chart-6: #f47174;
+    --chart-7: #9be7c4;
+    --chart-8: #e0a96c;
     --shadow: 0 16px 40px -12px #000c;
     color-scheme: dark;
 }
@@ -929,6 +945,39 @@ dialog::backdrop { background: #0a0d1066; backdrop-filter: blur(2px); }
 .menu-item .meta { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); }
 .menu-sep { height: 1px; background: var(--border); margin: 0.3rem 0; }
 .menu-title { font-family: var(--font-mono); font-size: 10.5px; color: var(--amber); padding: 0.4rem 0.6rem 0.2rem; }
+
+/* ---------- Historique ---------- */
+.h-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-bottom: 0.9rem; }
+.h-chip { display: inline-flex; align-items: stretch; border: 1px solid var(--border); background: var(--card); border-radius: var(--radius); font-size: 12.5px; }
+.h-chip-main { display: inline-flex; align-items: center; gap: 0.4rem; border: 0; background: none; color: var(--fg); font: inherit; padding: 0.3rem 0.55rem; cursor: pointer; }
+.h-chip-main i { width: 12px; height: 3px; border-radius: 2px; flex: none; }
+.h-chip-main .dev { color: var(--text-soft); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.h-chip-main strong { font-family: var(--font-mono); font-size: 12px; margin-left: 0.2rem; }
+.h-chip-x { border: 0; border-left: 1px solid var(--border); background: none; color: var(--text-dim); cursor: pointer; padding: 0 0.35rem; }
+.h-chip-x:hover { color: var(--red); }
+.h-chip-x svg { width: 12px; height: 12px; }
+.h-chip.off { opacity: 0.45; }
+.h-chip.off .h-chip-main i { background: var(--line-strong) !important; }
+.h-sw { display: inline-block; width: 12px; height: 3px; border-radius: 2px; margin-right: 0.5rem; vertical-align: middle; }
+.h-chart { border: 1px solid var(--border); background: var(--card); }
+.tchart-tip {
+    position: absolute;
+    z-index: 5;
+    pointer-events: none;
+    min-width: 180px;
+    max-width: 340px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    border-radius: var(--radius);
+    padding: 0.45rem 0.6rem;
+    font-size: 12px;
+}
+.tchart-tip-head { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); margin-bottom: 0.3rem; }
+.tchart-tip-row { display: flex; align-items: center; gap: 0.45rem; padding: 0.1rem 0; }
+.tchart-tip-row i { width: 10px; height: 3px; border-radius: 2px; flex: none; }
+.tchart-tip-row span { flex: 1; color: var(--text-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tchart-tip-row strong { font-family: var(--font-mono); font-size: 12px; white-space: nowrap; }
 
 /* ---------- Toasts ---------- */
 .toasts { position: fixed; bottom: 1.25rem; left: 50%; transform: translateX(-50%); z-index: 90; display: flex; flex-direction: column; gap: 0.5rem; align-items: center; pointer-events: none; }
