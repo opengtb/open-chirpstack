@@ -12,9 +12,10 @@ Pas de serveur à installer, pas de Docker, pas de compte. L'outil tourne sur vo
 | | |
 |---|---|
 | **Vue d'ensemble** | Santé de l'application (actifs, silencieux, jamais vus, piles faibles), santé de chaque application du tenant, gateways hors ligne |
-| **Devices** | Liste filtrable (statut, profil, tag, recherche), tri, sélection par plage (Maj + clic), fiche détaillée avec clés et liaison radio (paquets, RSSI, SNR) |
+| **Devices** | Liste filtrable (statut, profil, tag, recherche), tri, sélection par plage (Maj + clic), fiche détaillée avec clés, mesures et liaison radio |
 | **Actions groupées** | Export CSV / Excel, ajout ou retrait de tags, changement de Device Profile, migration vers une autre application, suppression avec sauvegarde |
 | **Import** | Fichier CSV (tout séparateur, UTF-8 ou Windows-1252) ou Excel, copier-coller depuis un tableur, saisie directe. Colonnes reconnues automatiquement, profil indiqué par son nom, vérification complète avant envoi, doublons mis à jour sans suppression, annulation de l'import |
+| **Historique** | Mesures enregistrées par ChirpStack (température, humidité, CO2, consigne, compteurs…) et liaison radio : plusieurs mesures et plusieurs devices sur un même graphique, un axe par unité, valeurs au survol, zoom, statistiques, export CSV et PNG |
 | **Tags par fichier** | Aperçu exact des changements (avant → après), fusion ou remplacement |
 | **Recherche** | Un DevEUI complet ou partiel, un nom, une valeur de tag, dans tout le tenant |
 | **Profils d'import** | Tags obligatoires à chaque import (bâtiment, étage, lot…) |
