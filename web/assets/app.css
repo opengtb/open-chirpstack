@@ -248,6 +248,26 @@ kbd {
 .theme-switch button:hover { color: var(--fg); }
 .theme-switch button[aria-checked="true"] { background: var(--accent-glow); color: var(--primary); font-weight: 600; }
 
+/* Sélecteur de langue FR | EN : même allure que le commutateur de thème */
+.lang-switch {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+}
+.lang-switch button {
+    border: 0;
+    background: none;
+    color: var(--text-dim);
+    font: inherit;
+    letter-spacing: 0.04em;
+    padding: 0.4rem 0.55rem;
+    cursor: pointer;
+}
+.lang-switch button + button { border-left: 1px solid var(--border); }
+.lang-switch button:hover { color: var(--fg); }
+.lang-switch button[aria-checked="true"] { background: var(--accent-glow); color: var(--primary); font-weight: 600; }
+
 /* ---------- Bandeau ---------- */
 .banner {
     display: flex;

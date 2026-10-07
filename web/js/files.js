@@ -1,5 +1,7 @@
 // Lecture et écriture de fichiers : CSV (tous encodages), Excel, texte collé depuis un tableur.
 
+import { t, csvSeparator } from './i18n.js';
+
 // SheetJS n'est chargé qu'au premier besoin (fichier Excel ou export XLSX).
 let xlsxLoading = null;
 export function loadXLSX() {
@@ -9,7 +11,7 @@ export function loadXLSX() {
             const s = document.createElement('script');
             s.src = 'vendor/xlsx.full.min.js';
             s.onload = () => resolve(window.XLSX);
-            s.onerror = () => reject(new Error('Impossible de charger le module Excel.'));
+            s.onerror = () => reject(new Error(t('Impossible de charger le module Excel.')));
             document.head.appendChild(s);
         });
     }
@@ -115,7 +117,7 @@ const isEmptyRow = (r) => !r || !r.some((c) => String(c ?? '').trim() !== '');
 function toRecords(matrix, numericCells) {
     // On garde le numéro de ligne d'origine (1 = première ligne du fichier) pour les messages d'erreur.
     const nonEmpty = matrix.map((r, i) => ({ r, line: i + 1 })).filter((x) => !isEmptyRow(x.r));
-    if (nonEmpty.length === 0) throw new Error('Le fichier est vide.');
+    if (nonEmpty.length === 0) throw new Error(t('Le fichier est vide.'));
     const seen = {};
     const headers = nonEmpty[0].r.map((h, i) => {
         let name = String(h ?? '').trim() || `colonne_${i + 1}`;
@@ -159,21 +161,22 @@ export async function readFile(file) {
             }
             dataRow++;
         }
-        return { ...toRecords(matrix, numericCells), source: `${file.name} · feuille « ${name} »`, kind: 'excel' };
+        return { ...toRecords(matrix, numericCells), source: t('{file} · feuille « {sheet} »', { file: file.name, sheet: name }), kind: 'excel' };
     }
     const { text, encoding } = decodeText(buffer);
     const sep = detectSeparator(text);
-    return { ...toRecords(parseDelimited(text, sep)), source: `${file.name} · ${encoding} · séparateur ${sepName(sep)}`, kind: 'csv' };
+    return { ...toRecords(parseDelimited(text, sep)), source: t('{file} · {encoding} · séparateur {sep}', { file: file.name, encoding, sep: sepName(sep) }), kind: 'csv' };
 }
 
 export function readPasted(text) {
-    const t = text.replace(/^\uFEFF/, '');
-    const sep = t.includes('\t') ? '\t' : detectSeparator(t);
-    return { ...toRecords(parseDelimited(t, sep)), source: `texte collé · séparateur ${sepName(sep)}`, kind: 'paste' };
+    const txt = text.replace(/^\uFEFF/, '');
+    const sep = txt.includes('\t') ? '\t' : detectSeparator(txt);
+    return { ...toRecords(parseDelimited(txt, sep)), source: t('texte collé · séparateur {sep}', { sep: sepName(sep) }), kind: 'paste' };
 }
 
 export function sepName(sep) {
-    return { ';': 'point-virgule', ',': 'virgule', '\t': 'tabulation', '|': 'barre verticale' }[sep] || sep;
+    const names = { ';': 'point-virgule', ',': 'virgule', '\t': 'tabulation', '|': 'barre verticale' };
+    return names[sep] ? t(names[sep]) : sep;
 }
 
 // ---------- Correspondance des colonnes ----------
@@ -188,6 +191,8 @@ export const FIELDS = [
     { key: 'app_key_11', label: 'AppKey LoRaWAN 1.1 (optionnel)', aliases: [] },
     { key: 'join_eui', label: 'JoinEUI / AppEUI (optionnel)', aliases: ['joineui', 'appeui', 'joinapp'] },
 ];
+
+// Les libellés ci-dessus sont des clés françaises, traduites à l'affichage avec t(label).
 
 // Colonnes jamais proposées comme tags par défaut (issues d'un export, état du device…).
 const NOT_TAGS = ['key', 'cle', 'cleapp', 'applicationkey', 'name', 'nom', 'description', 'devicename', 'deviceprofile', 'deviceprofileid', 'createdat', 'updatedat', 'lastseenat', 'lastseen', 'derniervu', 'status', 'statut', 'battery', 'batterie', 'margin', 'application', 'applicationid', 'applicationname', 'deviceprofilename', 'tenant', 'tenantid', 'nwkkey', 'appkey', 'genappkey', 'joineui', 'appeui', 'deveui', 'devaddr', 'nwkskey', 'appskey'];
@@ -235,16 +240,17 @@ export function tagCandidates(headers, mapping) {
 }
 
 // ---------- Export ----------
-const csvCell = (v) => {
+const csvCell = (v, sep) => {
     let s = String(v ?? '');
     // Une cellule commençant par = + - @ serait exécutée comme formule par Excel.
     if (/^[=+\-@\t\r]/.test(s) && !/^-?\d+([.,]\d+)?$/.test(s)) s = `'${s}`;
-    return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    return /["\n\r]/.test(s) || s.includes(sep) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
-// CSV pour Excel français : BOM UTF-8 et point-virgule.
+// CSV avec BOM UTF-8 ; séparateur selon la langue (point-virgule pour Excel français, virgule sinon).
 export function toCSV(headers, rows) {
-    return '\uFEFF' + [headers, ...rows].map((r) => r.map(csvCell).join(';')).join('\r\n');
+    const sep = csvSeparator();
+    return '\uFEFF' + [headers, ...rows].map((r) => r.map((v) => csvCell(v, sep)).join(sep)).join('\r\n');
 }
 
 export async function toXLSX(headers, rows, sheet = 'devices') {

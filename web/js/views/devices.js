@@ -3,11 +3,12 @@
 import * as api from '../api.js';
 import * as ops from '../ops.js';
 import { session, devices, cached, loadedAt, statusOf, statusInfo, battery, STATUSES, patchDevices, removeDevices, invalidate, listen, profileName, appName } from '../state.js';
-import { $, $$, html, render, raw, icon, on, debounce, fmtNum, plural, timeAgo, fmtDate, copy, toast, openDialog, confirmDialog, download, today, slug } from '../ui.js';
+import { $, $$, html, render, raw, esc, icon, on, debounce, fmtNum, plural, timeAgo, fmtDate, copy, toast, openDialog, confirmDialog, download, today, slug } from '../ui.js';
 import { runJob } from '../jobs.js';
 import { toCSV, toXLSX, normHex } from '../files.js';
 import { lineChart, barChart, unitOf, fmtVal } from '../charts.js';
 import { isValidTagKey } from '../store.js';
+import { t, locale, csvNumber, csvSeparator } from '../i18n.js';
 
 const PAGE = 300;
 
@@ -88,11 +89,11 @@ export function mount(root, { navigate, chooseApp }) {
             <div>
                 <div class="eyebrow">$ cs devices</div>
                 <h1>Devices <em>${app.name}</em></h1>
-                <p class="lede">${list ? html`${plural(list.length, 'device')} · chargés ${timeAgo(at ? new Date(at).toISOString() : null)}` : 'Chargement…'}</p>
+                <p class="lede">${list ? t('{devices} · chargés {ago}', { devices: plural(list.length, t('device')), ago: timeAgo(at ? new Date(at).toISOString() : null) }) : t('Chargement…')}</p>
             </div>
             <div class="actions">
-                <button class="btn" data-act="refresh" title="Recharger depuis le serveur">${icon('refresh')} Recharger</button>
-                <button class="btn" data-act="export-all" ${list?.length ? '' : 'disabled'}>${icon('download')} Exporter</button>
+                <button class="btn" data-act="refresh" title="${t('Recharger depuis le serveur')}">${icon('refresh')} ${t('Recharger')}</button>
+                <button class="btn" data-act="export-all" ${list?.length ? '' : 'disabled'}>${icon('download')} ${t('Exporter')}</button>
                 <button class="btn btn-primary" data-act="go-import">$ cs import →</button>
             </div>
         </div>`;
@@ -106,23 +107,23 @@ export function mount(root, { navigate, chooseApp }) {
             const b = battery(d);
             if (b && !b.ext && b.level < 20) low++;
         }
-        return html`<div class="filters" role="group" aria-label="Filtrer par statut">
-            <button class="fchip ${!f.status ? 'on' : ''}" data-act="status" data-v="">Tous <span class="n">${fmtNum(list.length)}</span></button>
+        return html`<div class="filters" role="group" aria-label="${t('Filtrer par statut')}">
+            <button class="fchip ${!f.status ? 'on' : ''}" data-act="status" data-v="">${t('Tous')} <span class="n">${fmtNum(list.length)}</span></button>
             ${STATUSES.map((s) => html`<button class="fchip ${f.status === s.key ? 'on' : ''}" data-act="status" data-v="${s.key}" title="${s.hint}"><span class="status ${s.key}"></span>${s.label} <span class="n">${fmtNum(counts[s.key])}</span></button>`)}
-            ${low ? html`<button class="fchip ${f.status === 'lowbat' ? 'on' : ''}" data-act="status" data-v="lowbat">${icon('battery')} Piles &lt; 20 % <span class="n">${fmtNum(low)}</span></button>` : ''}
+            ${low ? html`<button class="fchip ${f.status === 'lowbat' ? 'on' : ''}" data-act="status" data-v="lowbat">${icon('battery')} ${t('Piles < 20 %')} <span class="n">${fmtNum(low)}</span></button>` : ''}
         </div>`;
     }
 
     function toolbar() {
         const profiles = [...new Map(list.map((d) => [d.deviceProfileId, d.deviceProfileName || profileName(d.deviceProfileId) || d.deviceProfileId])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
         return html`<div class="toolbar">
-            <div class="search-input">${icon('search')}<input type="search" data-search id="d-q" placeholder="Nom, DevEUI, tag, description…" value="${f.q}" aria-label="Rechercher"><kbd>/</kbd></div>
+            <div class="search-input">${icon('search')}<input type="search" data-search id="d-q" placeholder="${t('Nom, DevEUI, tag, description…')}" value="${f.q}" aria-label="${t('Rechercher')}"><kbd>/</kbd></div>
             <select id="d-profile" class="sm" style="width:auto;max-width:260px" aria-label="Device Profile">
-                <option value="">Tous les profils</option>
+                <option value="">${t('Tous les profils')}</option>
                 ${profiles.map(([id, name]) => html`<option value="${id}" ${f.profile === id ? 'selected' : ''}>${name}</option>`)}
             </select>
-            <input type="text" id="d-tag" class="sm mono" style="width:200px" placeholder="tag : clé=valeur" value="${f.tag}" aria-label="Filtrer par tag">
-            ${f.q || f.profile || f.tag || f.status ? html`<button class="btn btn-ghost btn-sm" data-act="clear">${icon('x')} effacer les filtres</button>` : ''}
+            <input type="text" id="d-tag" class="sm mono" style="width:200px" placeholder="${t('tag : clé=valeur')}" value="${f.tag}" aria-label="${t('Filtrer par tag')}">
+            ${f.q || f.profile || f.tag || f.status ? html`<button class="btn btn-ghost btn-sm" data-act="clear">${icon('x')} ${t('effacer les filtres')}</button>` : ''}
         </div>`;
     }
 
@@ -134,9 +135,9 @@ export function mount(root, { navigate, chooseApp }) {
     function batteryCell(d) {
         const b = battery(d);
         if (!b) return html`<span class="dim">—</span>`;
-        if (b.ext) return html`<span class="battery" title="Alimentation externe">⚡ secteur</span>`;
+        if (b.ext) return html`<span class="battery" title="${t('Alimentation externe')}">⚡ ${t('secteur')}</span>`;
         const cls = b.level < 20 ? 'low' : b.level < 50 ? 'mid' : '';
-        return html`<span class="battery ${cls}" title="Pile ${b.level} %"><span class="cell"><i style="width:${b.level}%"></i></span>${b.level} %</span>`;
+        return html`<span class="battery ${cls}" title="${t('Pile {level} %', { level: b.level })}"><span class="cell"><i style="width:${b.level}%"></i></span>${b.level} %</span>`;
     }
 
     function tagsCell(d) {
@@ -149,44 +150,44 @@ export function mount(root, { navigate, chooseApp }) {
         const allSel = rows.length > 0 && rows.every((d) => sel.has(d.devEui));
         return html`<div class="table-wrap scroll"><table class="tbl" id="d-table">
             <thead><tr>
-                <th class="w-check"><input type="checkbox" data-act="selall" ${allSel ? 'checked' : ''} aria-label="Tout sélectionner (filtrés)"></th>
-                ${sortTh('name', 'Nom')}${sortTh('devEui', 'DevEUI')}${sortTh('profile', 'Device Profile')}
-                <th>Tags</th>${sortTh('battery', 'Pile')}${sortTh('lastSeenAt', 'Dernier message')}<th>Statut</th>
+                <th class="w-check"><input type="checkbox" data-act="selall" ${allSel ? 'checked' : ''} aria-label="${t('Tout sélectionner (filtrés)')}"></th>
+                ${sortTh('name', t('Nom'))}${sortTh('devEui', 'DevEUI')}${sortTh('profile', 'Device Profile')}
+                <th>${t('Tags')}</th>${sortTh('battery', t('Pile'))}${sortTh('lastSeenAt', t('Dernier message'))}<th>${t('Statut')}</th>
             </tr></thead>
             <tbody>${rows.length ? rows.slice(0, shown).map((d) => {
                 const st = statusOf(d);
                 return html`<tr class="clickable ${sel.has(d.devEui) ? 'selected' : ''}" data-act="row" data-eui="${d.devEui}">
-                    <td class="w-check"><input type="checkbox" data-act="check" data-eui="${d.devEui}" ${sel.has(d.devEui) ? 'checked' : ''} aria-label="Sélectionner ${d.name}"></td>
+                    <td class="w-check"><input type="checkbox" data-act="check" data-eui="${d.devEui}" ${sel.has(d.devEui) ? 'checked' : ''} aria-label="${t('Sélectionner {name}', { name: d.name })}"></td>
                     <td class="name" title="${d.name}">${d.name || '—'}${d.description ? html`<small>${d.description}</small>` : ''}</td>
-                    <td class="eui nowrap">${d.devEui}<button class="btn btn-ghost btn-xs copy" data-act="copy" data-v="${d.devEui}" title="Copier le DevEUI">${icon('copy')}</button></td>
+                    <td class="eui nowrap">${d.devEui}<button class="btn btn-ghost btn-xs copy" data-act="copy" data-v="${d.devEui}" title="${t('Copier le DevEUI')}">${icon('copy')}</button></td>
                     <td class="ellipsis small" title="${d.deviceProfileName}">${d.deviceProfileName || profileName(d.deviceProfileId) || '—'}</td>
                     <td>${tagsCell(d)}</td>
                     <td class="nowrap">${batteryCell(d)}</td>
                     <td class="nowrap small" title="${fmtDate(d.lastSeenAt)}">${timeAgo(d.lastSeenAt)}</td>
                     <td><span class="status ${st}">${statusInfo(st).one}</span></td>
                 </tr>`;
-            }) : html`<tr><td colspan="8" class="empty">${list.length ? 'Aucun device ne correspond aux filtres.' : 'Aucun device dans cette application.'}</td></tr>`}</tbody>
+            }) : html`<tr><td colspan="8" class="empty">${list.length ? t('Aucun device ne correspond aux filtres.') : t('Aucun device dans cette application.')}</td></tr>`}</tbody>
         </table></div>
-        <div class="table-foot"><span>${fmtNum(Math.min(shown, rows.length))} affichés sur ${plural(rows.length, 'device')}${rows.length !== list.length ? ` filtrés (${fmtNum(list.length)} au total)` : ''}</span>
+        <div class="table-foot"><span>${t(rows.length !== list.length ? '{shown} affichés sur {devices} filtrés ({total} au total)' : '{shown} affichés sur {devices}', { shown: fmtNum(Math.min(shown, rows.length)), devices: plural(rows.length, t('device')), total: fmtNum(list.length) })}</span>
             <span class="spacer"></span>
-            ${rows.length > shown ? html`<button class="btn btn-sm" data-act="more">Afficher ${fmtNum(Math.min(PAGE, rows.length - shown))} de plus</button>` : ''}
+            ${rows.length > shown ? html`<button class="btn btn-sm" data-act="more">${t('Afficher {n} de plus', { n: fmtNum(Math.min(PAGE, rows.length - shown)) })}</button>` : ''}
         </div>`;
     }
 
     function selbar(rows) {
         if (!sel.size) return '';
         const notAllFiltered = rows.length > 0 && rows.some((d) => !sel.has(d.devEui));
-        return html`<div class="selbar" role="toolbar" aria-label="Actions sur la sélection">
-            <span class="count"><strong>${fmtNum(sel.size)}</strong> sélectionné${sel.size > 1 ? 's' : ''}</span>
-            ${notAllFiltered ? html`<button class="btn-link" data-act="selfiltered">+ sélectionner les ${fmtNum(rows.length)} filtrés</button>` : ''}
+        return html`<div class="selbar" role="toolbar" aria-label="${t('Actions sur la sélection')}">
+            <span class="count"><strong>${fmtNum(sel.size)}</strong> ${sel.size > 1 ? t('sélectionnés') : t('sélectionné')}</span>
+            ${notAllFiltered ? html`<button class="btn-link" data-act="selfiltered">${t('+ sélectionner les {n} filtrés', { n: fmtNum(rows.length) })}</button>` : ''}
             <span class="spacer"></span>
-            <button class="btn btn-sm" data-act="bulk-history" title="Comparer leurs mesures">${icon('chart')} Historique</button>
-            <button class="btn btn-sm" data-act="bulk-export">${icon('download')} Exporter</button>
-            <button class="btn btn-sm" data-act="bulk-tags">${icon('tag')} Tags</button>
-            <button class="btn btn-sm" data-act="bulk-profile">${icon('layers')} Profil</button>
-            <button class="btn btn-sm" data-act="bulk-move" ${session.apps.length < 2 ? 'disabled' : ''}>${icon('move')} Migrer</button>
-            <button class="btn btn-sm btn-danger" data-act="bulk-delete">${icon('trash')} Supprimer</button>
-            <button class="btn btn-sm btn-ghost" data-act="selnone" title="Tout désélectionner">${icon('x')}</button>
+            <button class="btn btn-sm" data-act="bulk-history" title="${t('Comparer leurs mesures')}">${icon('chart')} ${t('Historique')}</button>
+            <button class="btn btn-sm" data-act="bulk-export">${icon('download')} ${t('Exporter')}</button>
+            <button class="btn btn-sm" data-act="bulk-tags">${icon('tag')} ${t('Tags')}</button>
+            <button class="btn btn-sm" data-act="bulk-profile">${icon('layers')} ${t('Profil')}</button>
+            <button class="btn btn-sm" data-act="bulk-move" ${session.apps.length < 2 ? 'disabled' : ''}>${icon('move')} ${t('Migrer')}</button>
+            <button class="btn btn-sm btn-danger" data-act="bulk-delete">${icon('trash')} ${t('Supprimer')}</button>
+            <button class="btn btn-sm btn-ghost" data-act="selnone" title="${t('Tout désélectionner')}">${icon('x')}</button>
         </div>`;
     }
 
@@ -195,11 +196,11 @@ export function mount(root, { navigate, chooseApp }) {
         const active = keepFocus ? document.activeElement?.id : null;
         const caret = active && document.activeElement.selectionStart;
         if (error) {
-            render(root, html`<div class="page">${head()}<div class="callout err">${icon('alert')}<div><strong>Impossible de charger les devices.</strong> ${error}</div></div></div>`);
+            render(root, html`<div class="page">${head()}<div class="callout err">${icon('alert')}<div><strong>${t('Impossible de charger les devices.')}</strong> ${error}</div></div></div>`);
             return;
         }
         if (!list) {
-            render(root, html`<div class="page">${head()}<div class="card"><div class="row"><div class="grow progress" id="d-prog"><i></i></div><span class="mono small" id="d-progt">connexion…</span></div></div></div>`);
+            render(root, html`<div class="page">${head()}<div class="card"><div class="row"><div class="grow progress" id="d-prog"><i></i></div><span class="mono small" id="d-progt">${t('connexion…')}</span></div></div></div>`);
             return;
         }
         const rows = filtered();
@@ -220,11 +221,11 @@ export function mount(root, { navigate, chooseApp }) {
         try {
             list = await devices(app.id, {
                 force,
-                onProgress: (n, t) => {
+                onProgress: (n, total) => {
                     const bar = $('#d-prog > i', root);
-                    if (bar) bar.style.width = `${t ? (n / t) * 100 : 0}%`;
+                    if (bar) bar.style.width = `${total ? (n / total) * 100 : 0}%`;
                     const txt = $('#d-progt', root);
-                    if (txt) txt.textContent = `${fmtNum(n)} / ${fmtNum(t)}`;
+                    if (txt) txt.textContent = `${fmtNum(n)} / ${fmtNum(total)}`;
                 },
             });
             for (const e of [...sel]) if (!list.some((d) => d.devEui === e)) sel.delete(e);
@@ -298,7 +299,7 @@ export function mount(root, { navigate, chooseApp }) {
         'bulk-export': () => exportDialog(selected()),
         'bulk-history': () => {
             const chosen = selected().slice(0, 16);
-            if (sel.size > 16) toast('16 devices au maximum dans l\'historique : les 16 premiers sont proposés.', { type: 'warn' });
+            if (sel.size > 16) toast(t('16 devices au maximum dans l’historique : les 16 premiers sont proposés.'), { type: 'warn' });
             session.pendingHistory = { devices: chosen.map((d) => ({ eui: d.devEui, name: d.name })) };
             navigate('historique');
         },
@@ -315,15 +316,15 @@ export function mount(root, { navigate, chooseApp }) {
     function exportDialog(rows) {
         if (!rows.length) return;
         const d = openDialog({
-            title: `Exporter ${plural(rows.length, 'device')}`,
+            title: t('Exporter {devices}', { devices: plural(rows.length, t('device')) }),
             body: html`<div class="stack">
-                <div class="field"><span class="label">Format</span>
-                    <div class="seg" role="radiogroup"><label><input type="radio" name="fmt" value="xlsx" checked> Excel (.xlsx)</label><label><input type="radio" name="fmt" value="csv"> CSV (;)</label></div></div>
-                <label class="check"><input type="checkbox" id="x-keys"> Inclure les clés (AppKey / NwkKey) et le JoinEUI</label>
-                <div class="callout warn" id="x-warn" hidden>${icon('alert')}<div>Les clés seront <strong>en clair</strong> dans le fichier. Une requête par device : ${plural(rows.length, 'appel')} au serveur.</div></div>
-                <p class="hint">Les colonnes reprennent celles de l'import : le fichier peut être modifié puis réimporté tel quel (tags en colonnes <code>tag:clé</code>).</p>
+                <div class="field"><span class="label">${t('Format')}</span>
+                    <div class="seg" role="radiogroup"><label><input type="radio" name="fmt" value="xlsx" checked> Excel (.xlsx)</label><label><input type="radio" name="fmt" value="csv"> CSV (${csvSeparator()})</label></div></div>
+                <label class="check"><input type="checkbox" id="x-keys"> ${t('Inclure les clés (AppKey / NwkKey) et le JoinEUI')}</label>
+                <div class="callout warn" id="x-warn" hidden>${icon('alert')}<div>${raw(t('Les clés seront <strong>en clair</strong> dans le fichier. Une requête par device : {calls} au serveur.', { calls: plural(rows.length, t('appel')) }))}</div></div>
+                <p class="hint">${raw(t('Les colonnes reprennent celles de l’import : le fichier peut être modifié puis réimporté tel quel (tags en colonnes <code>tag:clé</code>).'))}</p>
             </div>`,
-            foot: html`<button class="btn" data-close>Annuler</button><button class="btn btn-primary" data-go>${icon('download')} Télécharger</button>`,
+            foot: html`<button class="btn" data-close>${t('Annuler')}</button><button class="btn btn-primary" data-go>${icon('download')} ${t('Télécharger')}</button>`,
             onMount(el, close) {
                 $('#x-keys', el).addEventListener('change', (e) => { $('#x-warn', el).hidden = !e.target.checked; });
                 $('[data-go]', el).addEventListener('click', () => close({ fmt: $('input[name=fmt]:checked', el).value, keys: $('#x-keys', el).checked }));
@@ -334,14 +335,14 @@ export function mount(root, { navigate, chooseApp }) {
             let extra = new Map();
             if (opt.keys) {
                 const res = await runJob({
-                    title: 'Lecture des clés',
-                    verb: 'lu(s)',
+                    title: t('Lecture des clés'),
+                    verb: t('lu(s)'),
                     items: rows,
                     label: (x) => x.name || x.devEui,
                     run: async (x) => {
                         const [full, keys] = await Promise.all([ops.getDevice(x.devEui), ops.getKeys(x.devEui)]);
                         extra.set(x.devEui, { joinEui: full.device?.joinEui || '', keys });
-                        return keys ? '' : 'pas de clés';
+                        return keys ? '' : t('pas de clés');
                     },
                 });
                 if (res.stopped) return;
@@ -353,13 +354,13 @@ export function mount(root, { navigate, chooseApp }) {
                 const b = battery(x);
                 return [x.devEui, x.name, x.description || '', x.deviceProfileId, x.deviceProfileName || profileName(x.deviceProfileId),
                     ...(opt.keys ? [e?.joinEui || '', e?.keys?.nwkKey || '', e?.keys?.appKey && !/^0+$/.test(e.keys.appKey) ? e.keys.appKey : ''] : []),
-                    x.lastSeenAt || '', statusInfo(statusOf(x)).one, b ? (b.ext ? 'secteur' : b.level) : '',
+                    x.lastSeenAt || '', statusInfo(statusOf(x)).one, b ? (b.ext ? t('secteur') : b.level) : '',
                     ...tagKeys.map((k) => x.tags?.[k] ?? '')];
             });
             const base = `${slug(app.name)}-devices-${today()}`;
             if (opt.fmt === 'csv') download(toCSV(headers, data), `${base}.csv`, 'text/csv;charset=utf-8');
             else download(await toXLSX(headers, data, app.name), `${base}.xlsx`);
-            toast(`${plural(rows.length, 'device')} exporté${rows.length > 1 ? 's' : ''}.`);
+            toast(t(rows.length > 1 ? '{devices} exportés.' : '{devices} exporté.', { devices: plural(rows.length, t('device')) }));
         });
     }
 
@@ -369,23 +370,23 @@ export function mount(root, { navigate, chooseApp }) {
         for (const x of rows) for (const k of Object.keys(x.tags || {})) existing[k] = (existing[k] || 0) + 1;
         const removals = new Set();
         const d = openDialog({
-            title: `Tags de ${plural(rows.length, 'device')}`,
+            title: t('Tags de {devices}', { devices: plural(rows.length, t('device')) }),
             wide: true,
             body: html`<div class="stack">
-                <div><span class="label">Ajouter ou modifier</span>
+                <div><span class="label">${t('Ajouter ou modifier')}</span>
                     <div id="t-rows" class="stack" style="gap:.4rem"></div>
-                    <button class="btn btn-sm mt-s" data-addrow>${icon('plus')} Ajouter un tag</button>
-                    <p class="hint">La valeur remplace l'existante. Valeur vide : le tag est créé vide.</p></div>
-                ${Object.keys(existing).length ? html`<div><span class="label">Retirer (cliquez pour marquer)</span>
-                    <div class="tags" id="t-rm">${Object.entries(existing).sort().map(([k, n]) => html`<button class="badge" data-rm="${k}" title="présent sur ${n} device(s)">${k} <span class="dim">${n}</span></button>`)}</div></div>` : ''}
+                    <button class="btn btn-sm mt-s" data-addrow>${icon('plus')} ${t('Ajouter un tag')}</button>
+                    <p class="hint">${t('La valeur remplace l’existante. Valeur vide : le tag est créé vide.')}</p></div>
+                ${Object.keys(existing).length ? html`<div><span class="label">${t('Retirer (cliquez pour marquer)')}</span>
+                    <div class="tags" id="t-rm">${Object.entries(existing).sort().map(([k, n]) => html`<button class="badge" data-rm="${k}" title="${t('présent sur {n} device(s)', { n })}">${k} <span class="dim">${n}</span></button>`)}</div></div>` : ''}
                 <div id="t-err" class="err small"></div>
             </div>`,
-            foot: html`<button class="btn" data-close>Annuler</button><button class="btn btn-primary" data-go>Appliquer à ${plural(rows.length, 'device')}</button>`,
+            foot: html`<button class="btn" data-close>${t('Annuler')}</button><button class="btn btn-primary" data-go>${t('Appliquer à {devices}', { devices: plural(rows.length, t('device')) })}</button>`,
             onMount(el, close) {
                 const addRow = (k = '', v = '') => {
                     const r = document.createElement('div');
                     r.className = 'row';
-                    render(r, html`<input type="text" class="sm mono" placeholder="clé" value="${k}" data-k style="max-width:220px"><span class="dim">=</span><input type="text" class="sm" placeholder="valeur" value="${v}" data-v><button class="btn btn-ghost btn-icon" data-del aria-label="Retirer la ligne">${icon('x')}</button>`);
+                    render(r, html`<input type="text" class="sm mono" placeholder="${t('clé')}" value="${k}" data-k style="max-width:220px"><span class="dim">=</span><input type="text" class="sm" placeholder="${t('valeur')}" value="${v}" data-v><button class="btn btn-ghost btn-icon" data-del aria-label="${t('Retirer la ligne')}">${icon('x')}</button>`);
                     $('#t-rows', el).appendChild(r);
                     $('[data-k]', r).focus();
                 };
@@ -408,13 +409,13 @@ export function mount(root, { navigate, chooseApp }) {
                         const k = $('[data-k]', r).value.trim();
                         if (!k) continue;
                         if (!isValidTagKey(k)) {
-                            $('#t-err', el).textContent = `Clé de tag invalide : « ${k} » (lettres, chiffres, . - _ : / et espaces, 64 caractères max).`;
+                            $('#t-err', el).textContent = t('Clé de tag invalide : « {k} » (lettres, chiffres, . - _ : / et espaces, 64 caractères max).', { k });
                             return;
                         }
                         set[k] = $('[data-v]', r).value.trim();
                     }
                     if (!Object.keys(set).length && !removals.size) {
-                        $('#t-err', el).textContent = 'Rien à modifier.';
+                        $('#t-err', el).textContent = t('Rien à modifier.');
                         return;
                     }
                     close({ set, remove: [...removals] });
@@ -425,8 +426,8 @@ export function mount(root, { navigate, chooseApp }) {
             if (!opt) return;
             const patches = [];
             const res = await runJob({
-                title: 'Mise à jour des tags',
-                verb: 'mis à jour',
+                title: t('Mise à jour des tags'),
+                verb: t('mis à jour'),
                 items: rows,
                 label: (x) => x.name || x.devEui,
                 run: async (x) => {
@@ -448,13 +449,13 @@ export function mount(root, { navigate, chooseApp }) {
     function profileDialog(rows) {
         const dps = [...session.deviceProfiles].sort((a, b) => a.name.localeCompare(b.name));
         const d = openDialog({
-            title: `Device Profile de ${plural(rows.length, 'device')}`,
+            title: t('Device Profile de {devices}', { devices: plural(rows.length, t('device')) }),
             body: html`<div class="stack">
-                <div class="field"><label for="p-sel">Nouveau Device Profile</label>
-                    <select id="p-sel" autofocus><option value="">— choisir —</option>${dps.map((p) => html`<option value="${p.id}">${p.name}${p.region ? ` · ${p.region}` : ''}${p.macVersion ? ` · ${p.macVersion.replace('LORAWAN_', '').replace(/_/g, '.')}` : ''}</option>`)}</select></div>
-                <p class="hint">Les clés, tags et sessions des devices sont conservés.</p>
+                <div class="field"><label for="p-sel">${t('Nouveau Device Profile')}</label>
+                    <select id="p-sel" autofocus><option value="">${t('— choisir —')}</option>${dps.map((p) => html`<option value="${p.id}">${p.name}${p.region ? ` · ${p.region}` : ''}${p.macVersion ? ` · ${p.macVersion.replace('LORAWAN_', '').replace(/_/g, '.')}` : ''}</option>`)}</select></div>
+                <p class="hint">${t('Les clés, tags et sessions des devices sont conservés.')}</p>
             </div>`,
-            foot: html`<button class="btn" data-close>Annuler</button><button class="btn btn-primary" data-go disabled>Appliquer</button>`,
+            foot: html`<button class="btn" data-close>${t('Annuler')}</button><button class="btn btn-primary" data-go disabled>${t('Appliquer')}</button>`,
             onMount(el, close) {
                 const s = $('#p-sel', el);
                 s.addEventListener('change', () => { $('[data-go]', el).disabled = !s.value; });
@@ -465,11 +466,11 @@ export function mount(root, { navigate, chooseApp }) {
             if (!dpId) return;
             const name = profileName(dpId);
             const todo = rows.filter((x) => x.deviceProfileId !== dpId);
-            if (!todo.length) return toast('Ces devices utilisent déjà ce profil.');
+            if (!todo.length) return toast(t('Ces devices utilisent déjà ce profil.'));
             const patches = [];
             const res = await runJob({
-                title: `Changement de profil → ${name}`,
-                verb: 'modifié(s)',
+                title: t('Changement de profil → {name}', { name }),
+                verb: t('modifié(s)'),
                 items: todo,
                 label: (x) => x.name || x.devEui,
                 run: async (x) => {
@@ -487,13 +488,13 @@ export function mount(root, { navigate, chooseApp }) {
     function moveDialog(rows) {
         const others = session.apps.filter((a) => a.id !== app.id);
         const d = openDialog({
-            title: `Migrer ${plural(rows.length, 'device')}`,
+            title: t('Migrer {devices}', { devices: plural(rows.length, t('device')) }),
             body: html`<div class="stack">
-                <div class="field"><label for="m-sel">Application de destination</label>
-                    <select id="m-sel" autofocus><option value="">— choisir —</option>${others.map((a) => html`<option value="${a.id}">${a.name}</option>`)}</select></div>
-                <div class="callout">${icon('move')}<div>Chaque device est d'abord <strong>copié</strong> (fiche, tags, clés, session). Si ChirpStack refuse le déplacement direct, il est recréé dans la destination ; en cas d'échec, il est <strong>remis automatiquement</strong> dans son application d'origine. Une sauvegarde JSON est proposée à la fin.</div></div>
+                <div class="field"><label for="m-sel">${t('Application de destination')}</label>
+                    <select id="m-sel" autofocus><option value="">${t('— choisir —')}</option>${others.map((a) => html`<option value="${a.id}">${a.name}</option>`)}</select></div>
+                <div class="callout">${icon('move')}<div>${raw(t('Chaque device est d’abord <strong>copié</strong> (fiche, tags, clés, session). Si ChirpStack refuse le déplacement direct, il est recréé dans la destination ; en cas d’échec, il est <strong>remis automatiquement</strong> dans son application d’origine. Une sauvegarde JSON est proposée à la fin.'))}</div></div>
             </div>`,
-            foot: html`<button class="btn" data-close>Annuler</button><button class="btn btn-primary" data-go disabled>Migrer</button>`,
+            foot: html`<button class="btn" data-close>${t('Annuler')}</button><button class="btn btn-primary" data-go disabled>${t('Migrer')}</button>`,
             onMount(el, close) {
                 const s = $('#m-sel', el);
                 s.addEventListener('change', () => { $('[data-go]', el).disabled = !s.value; });
@@ -505,8 +506,8 @@ export function mount(root, { navigate, chooseApp }) {
             const snaps = [];
             const moved = [];
             const res = await runJob({
-                title: `Migration → ${appName(dest)}`,
-                verb: 'migré(s)',
+                title: t('Migration → {app}', { app: appName(dest) }),
+                verb: t('migré(s)'),
                 items: rows,
                 label: (x) => x.name || x.devEui,
                 run: async (x, ctx) => {
@@ -514,14 +515,14 @@ export function mount(root, { navigate, chooseApp }) {
                     moved.push(x.devEui);
                     return r.message;
                 },
-                after: () => snaps.length ? [{ label: 'Télécharger la sauvegarde (JSON)', onClick: () => downloadBackup(snaps, 'migration') }] : [],
+                after: () => snaps.length ? [{ label: t('Télécharger la sauvegarde (JSON)'), onClick: () => downloadBackup(snaps, 'migration') }] : [],
             });
             removeDevices(app.id, moved);
             invalidate(dest);
             moved.forEach((e) => sel.delete(e));
             session.appCounts[dest] = (session.appCounts[dest] || 0) + moved.length;
             draw();
-            if (res.done.length) toast(`${plural(res.done.length, 'device')} dans « ${appName(dest)} ».`, { action: 'Ouvrir', onAction: () => chooseApp(session.apps.find((a) => a.id === dest), { go: 'devices' }) });
+            if (res.done.length) toast(t('{devices} dans « {app} ».', { devices: plural(res.done.length, t('device')), app: appName(dest) }), { action: t('Ouvrir'), onAction: () => chooseApp(session.apps.find((a) => a.id === dest), { go: 'devices' }) });
         });
     }
 
@@ -529,19 +530,19 @@ export function mount(root, { navigate, chooseApp }) {
     async function deleteFlow(rows) {
         const n = rows.length;
         const d = openDialog({
-            title: `Supprimer ${plural(n, 'device')}`,
+            title: t('Supprimer {devices}', { devices: plural(n, t('device')) }),
             body: html`<div class="stack">
-                <div class="callout err">${icon('alert')}<div>Suppression <strong>définitive</strong> dans ChirpStack : historique, clés et session sont effacés.</div></div>
+                <div class="callout err">${icon('alert')}<div>${raw(t('Suppression <strong>définitive</strong> dans ChirpStack : historique, clés et session sont effacés.'))}</div></div>
                 ${n <= 5 ? html`<ul class="small soft" style="margin:0;padding-left:1.2rem">${rows.map((x) => html`<li>${x.name} <span class="mono dim">${x.devEui}</span></li>`)}</ul>` : ''}
-                <label class="check"><input type="checkbox" id="del-bk" checked> Garder une sauvegarde (fiche + clés) pour pouvoir les recréer</label>
-                <div class="field"><label for="del-typed">Tapez <strong class="mono err">${n}</strong> pour confirmer</label><input type="text" id="del-typed" class="mono" autocomplete="off" autofocus></div>
+                <label class="check"><input type="checkbox" id="del-bk" checked> ${t('Garder une sauvegarde (fiche + clés) pour pouvoir les recréer')}</label>
+                <div class="field"><label for="del-typed">${raw(t('Tapez {n} pour confirmer', { n: `<strong class="mono err">${n}</strong>` }))}</label><input type="text" id="del-typed" class="mono" autocomplete="off" autofocus></div>
             </div>`,
-            foot: html`<button class="btn" data-close>Annuler</button><button class="btn btn-danger solid" data-go disabled>${icon('trash')} Supprimer</button>`,
+            foot: html`<button class="btn" data-close>${t('Annuler')}</button><button class="btn btn-danger solid" data-go disabled>${icon('trash')} ${t('Supprimer')}</button>`,
             onMount(el, close) {
-                const t = $('#del-typed', el);
+                const typed = $('#del-typed', el);
                 const go = $('[data-go]', el);
-                t.addEventListener('input', () => { go.disabled = t.value.trim() !== String(n); });
-                t.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !go.disabled) close({ backup: $('#del-bk', el).checked }); });
+                typed.addEventListener('input', () => { go.disabled = typed.value.trim() !== String(n); });
+                typed.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !go.disabled) close({ backup: $('#del-bk', el).checked }); });
                 go.addEventListener('click', () => close({ backup: $('#del-bk', el).checked }));
             },
         });
@@ -550,8 +551,8 @@ export function mount(root, { navigate, chooseApp }) {
         const snaps = [];
         const deleted = [];
         await runJob({
-            title: `Suppression de ${plural(n, 'device')}`,
-            verb: 'supprimé(s)',
+            title: t('Suppression de {devices}', { devices: plural(n, t('device')) }),
+            verb: t('supprimé(s)'),
             items: rows,
             label: (x) => x.name || x.devEui,
             run: async (x) => {
@@ -559,7 +560,7 @@ export function mount(root, { navigate, chooseApp }) {
                 await ops.deleteDevice(x.devEui);
                 deleted.push(x.devEui);
             },
-            after: () => snaps.length ? [{ label: 'Télécharger la sauvegarde (JSON)', onClick: () => downloadBackup(snaps, 'suppression') }] : [],
+            after: () => snaps.length ? [{ label: t('Télécharger la sauvegarde (JSON)'), onClick: () => downloadBackup(snaps, 'suppression') }] : [],
         });
         removeDevices(app.id, deleted);
         deleted.forEach((e) => sel.delete(e));
@@ -569,7 +570,7 @@ export function mount(root, { navigate, chooseApp }) {
     function downloadBackup(snaps, why) {
         const data = { app: 'open-chirpstack', kind: 'backup', reason: why, createdAt: new Date().toISOString(), server: api.isDemo() ? 'demo' : api.serverUrl(), tenant: session.tenant?.name, application: app.name, devices: snaps };
         download(JSON.stringify(data, null, 2), `sauvegarde-${why}-${slug(app.name)}-${today()}.json`, 'application/json');
-        toast('Sauvegarde téléchargée. Elle se réimporte depuis « importer ».');
+        toast(t('Sauvegarde téléchargée. Elle se réimporte depuis « importer ».'));
     }
 
     // ---------- Fiche device ----------
@@ -609,7 +610,7 @@ export function mount(root, { navigate, chooseApp }) {
             const link = metrics.link || {};
             const ts = link.rxPackets?.timestamps || [];
             const rxData = (link.rxPackets?.datasets?.[0]?.data || []).map(Number);
-            const rxByTs = new Map(ts.map((t, i) => [t, rxData[i] || 0]));
+            const rxByTs = new Map(ts.map((x, i) => [x, rxData[i] || 0]));
             const measures = Object.entries(metrics.measures?.metrics || {}).map(([key, m]) => {
                 const mts = m.timestamps || [];
                 // ChirpStack renvoie 0 pour un intervalle sans message : on en fait un trou (sauf compteurs par période).
@@ -633,10 +634,9 @@ export function mount(root, { navigate, chooseApp }) {
         }
 
         function measuresBlock(S) {
-            if (metrics.measuresError) return html`<p class="dim small">Mesures indisponibles : ${metrics.measuresError}</p>`;
+            if (metrics.measuresError) return html`<p class="dim small">${t('Mesures indisponibles : {err}', { err: metrics.measuresError })}</p>`;
             if (!S.measures.length && !S.states.length) {
-                return html`<div class="callout">${icon('alert')}<div>Aucune mesure historisée pour ce device. ChirpStack n'enregistre que les mesures déclarées dans le
-                    <strong>Device Profile</strong> (onglet <em>Measurements</em>, type autre que « Unknown ») et décodées par son codec.</div></div>`;
+                return html`<div class="callout">${icon('alert')}<div>${raw(t('Aucune mesure historisée pour ce device. ChirpStack n’enregistre que les mesures déclarées dans le <strong>Device Profile</strong> (onglet <em>Measurements</em>, type autre que « Unknown ») et décodées par son codec.'))}</div></div>`;
             }
             const agg = PERIODS[period].agg;
             const cur = S.measures.find((m) => m.key === session.lastMeasure) || S.measures[0];
@@ -648,13 +648,13 @@ export function mount(root, { navigate, chooseApp }) {
                     ${m.name} <strong>${fmtVal(m.kind === 'ABSOLUTE' ? m.sum : m.last)}${m.unit ? ` ${m.unit}` : ''}</strong></button>`)}</div>` : ''}
                 ${cur ? html`
                     ${S.measures.length === 1 ? html`<p class="small soft" style="margin-bottom:.5rem"><strong>${cur.name}</strong></p>` : ''}
-                    <div class="metric-tiles">${tiles.map(([label, v], i) => html`<div><div class="k-label">${label}</div><div class="k-value ${i === 0 ? 'ok' : ''}">${fmtVal(v)}<span class="xs dim"> ${cur.unit}</span></div></div>`)}</div>
+                    <div class="metric-tiles">${tiles.map(([label, v], i) => html`<div><div class="k-label">${t(label)}</div><div class="k-value ${i === 0 ? 'ok' : ''}">${fmtVal(v)}<span class="xs dim"> ${cur.unit}</span></div></div>`)}</div>
                     ${cur.kind === 'ABSOLUTE' ? barChart(cur.timestamps, cur.values, { unit: cur.unit, agg }) : lineChart(cur.timestamps, cur.values, { unit: cur.unit, agg })}` : ''}
                 ${S.states.length ? html`<dl class="kv mt">${S.states.map((st) => html`<dt>${st.name}</dt><dd class="mono small">${st.value}</dd>`)}</dl>` : ''}`;
         }
 
         function linkBlock(S) {
-            if (metrics.linkError) return html`<p class="dim small">Liaison radio indisponible : ${metrics.linkError}</p>`;
+            if (metrics.linkError) return html`<p class="dim small">${t('Liaison radio indisponible : {err}', { err: metrics.linkError })}</p>`;
             const m = S.link;
             const rx = S.rx;
             const sumDs = (metric) => (metric?.datasets || []).reduce((acc, ds) => { (ds.data || []).forEach((v, i) => { acc[i] = (acc[i] || 0) + Number(v || 0); }); return acc; }, []);
@@ -669,34 +669,34 @@ export function mount(root, { navigate, chooseApp }) {
             const snr = avg(m.gwSnr);
             const q = (v, good, ok) => (v === null ? '' : v >= good ? 'ok' : v >= ok ? 'warn' : 'err');
             return html`<div class="metric-tiles">
-                    <div><div class="k-label">paquets</div><div class="k-value">${fmtNum(total)}</div></div>
-                    <div><div class="k-label">erreurs</div><div class="k-value ${errs ? 'err' : ''}">${fmtNum(errs)}</div></div>
-                    <div><div class="k-label">RSSI moyen</div><div class="k-value ${q(rssi, -100, -115)}">${rssi === null ? '—' : `${rssi.toFixed(0)}`}<span class="xs dim"> dBm</span></div></div>
-                    <div><div class="k-label">SNR moyen</div><div class="k-value ${q(snr, 0, -10)}">${snr === null ? '—' : snr.toFixed(1)}<span class="xs dim"> dB</span></div></div>
+                    <div><div class="k-label">${t('paquets')}</div><div class="k-value">${fmtNum(total)}</div></div>
+                    <div><div class="k-label">${t('erreurs')}</div><div class="k-value ${errs ? 'err' : ''}">${fmtNum(errs)}</div></div>
+                    <div><div class="k-label">${t('RSSI moyen')}</div><div class="k-value ${q(rssi, -100, -115)}">${rssi === null ? '—' : `${rssi.toFixed(0)}`}<span class="xs dim"> dBm</span></div></div>
+                    <div><div class="k-label">${t('SNR moyen')}</div><div class="k-value ${q(snr, 0, -10)}">${snr === null ? '—' : snr.toFixed(1)}<span class="xs dim"> dB</span></div></div>
                 </div>
-                ${barChart(S.ts, rx, { agg: PERIODS[period].agg, label: 'paquet(s)' })}`;
+                ${barChart(S.ts, rx, { agg: PERIODS[period].agg, label: t('paquet(s)') })}`;
         }
 
         function metricsBlock() {
             if (!metrics) return html`<div class="skeleton" style="height:180px"></div>`;
             if (metrics.error) return html`<p class="err small">${metrics.error}</p>`;
             const S = series();
-            return html`<div class="sub-title">// mesures</div>${measuresBlock(S)}
-                <div class="sub-title">// liaison radio</div>${linkBlock(S)}
-                <p class="hint">ChirpStack conserve des valeurs agrégées : par défaut 2 jours en horaire, 1 mois en journalier, 1 an en mensuel.</p>`;
+            return html`<div class="sub-title">// ${t('mesures')}</div>${measuresBlock(S)}
+                <div class="sub-title">// ${t('liaison radio')}</div>${linkBlock(S)}
+                <p class="hint">${t('ChirpStack conserve des valeurs agrégées : par défaut 2 jours en horaire, 1 mois en journalier, 1 an en mensuel.')}</p>`;
         }
 
         // Export de l'historique affiché : une ligne par intervalle, une colonne par mesure.
         function exportHistory() {
             if (!metrics || metrics.error) return;
             const S = series();
-            const cell = (v) => (v === null || v === undefined || !Number.isFinite(v) ? '' : String(v).replace('.', ','));
+            const cell = (v) => csvNumber(v);
             const rssi = (S.link.gwRssi?.datasets?.[0]?.data || []).map((v, i) => (S.rx[i] > 0 ? Number(v) : null));
             const snr = (S.link.gwSnr?.datasets?.[0]?.data || []).map((v, i) => (S.rx[i] > 0 ? Number(v) : null));
             const all = [...new Set([...S.ts, ...S.measures.flatMap((m) => m.timestamps)])].sort();
-            const pick = (arr, tsArr, t) => cell(arr[tsArr.indexOf(t)]);
-            const head = ['horodatage', ...S.measures.map((m) => (m.unit ? `${m.name} (${m.unit})` : m.name)), 'paquets reçus', 'RSSI moyen (dBm)', 'SNR moyen (dB)'];
-            const rows = all.map((t) => [new Date(t).toLocaleString('fr-FR'), ...S.measures.map((m) => pick(m.values, m.timestamps, t)), pick(S.rx, S.ts, t), pick(rssi, S.ts, t), pick(snr, S.ts, t)]);
+            const pick = (arr, tsArr, ts) => cell(arr[tsArr.indexOf(ts)]);
+            const head = [t('horodatage'), ...S.measures.map((m) => (m.unit ? `${m.name} (${m.unit})` : m.name)), t('paquets reçus'), t('RSSI moyen (dBm)'), t('SNR moyen (dB)')];
+            const rows = all.map((ts) => [new Date(ts).toLocaleString(locale()), ...S.measures.map((m) => pick(m.values, m.timestamps, ts)), pick(S.rx, S.ts, ts), pick(rssi, S.ts, ts), pick(snr, S.ts, ts)]);
             const d = list.find((x) => x.devEui === eui) || d0;
             download(toCSV(head, rows), `${slug(d.name)}-historique-${period}-${today()}.csv`, 'text/csv;charset=utf-8');
         }
@@ -705,13 +705,13 @@ export function mount(root, { navigate, chooseApp }) {
             const dps = [...session.deviceProfiles].sort((a, b) => a.name.localeCompare(b.name));
             const tags = Object.entries(dev.tags || {});
             return html`<form id="dv-edit" class="stack">
-                <div class="field"><label for="dv-name">Nom</label><input type="text" id="dv-name" value="${dev.name}"></div>
-                <div class="field"><label for="dv-desc">Description</label><input type="text" id="dv-desc" value="${dev.description || ''}"></div>
+                <div class="field"><label for="dv-name">${t('Nom')}</label><input type="text" id="dv-name" value="${dev.name}"></div>
+                <div class="field"><label for="dv-desc">${t('Description')}</label><input type="text" id="dv-desc" value="${dev.description || ''}"></div>
                 <div class="field"><label for="dv-dp">Device Profile</label><select id="dv-dp">${dps.map((p) => html`<option value="${p.id}" ${p.id === dev.deviceProfileId ? 'selected' : ''}>${p.name}</option>`)}</select></div>
-                <div class="field"><span class="label">Tags</span><div id="dv-tags" class="stack" style="gap:.4rem">
-                    ${[...tags, ['', '']].map(([k, v]) => html`<div class="row"><input type="text" class="sm mono" placeholder="clé" value="${k}" data-k style="max-width:200px"><span class="dim">=</span><input type="text" class="sm" placeholder="valeur" value="${v}" data-v></div>`)}
-                </div><button type="button" class="btn btn-sm mt-s" data-act2="addtag">${icon('plus')} tag</button></div>
-                <div class="row"><span class="spacer"></span><button type="button" class="btn" data-act2="cancel">Annuler</button><button type="submit" class="btn btn-primary">Enregistrer</button></div>
+                <div class="field"><span class="label">${t('Tags')}</span><div id="dv-tags" class="stack" style="gap:.4rem">
+                    ${[...tags, ['', '']].map(([k, v]) => html`<div class="row"><input type="text" class="sm mono" placeholder="${t('clé')}" value="${k}" data-k style="max-width:200px"><span class="dim">=</span><input type="text" class="sm" placeholder="${t('valeur')}" value="${v}" data-v></div>`)}
+                </div><button type="button" class="btn btn-sm mt-s" data-act2="addtag">${icon('plus')} ${t('tag')}</button></div>
+                <div class="row"><span class="spacer"></span><button type="button" class="btn" data-act2="cancel">${t('Annuler')}</button><button type="submit" class="btn btn-primary">${t('Enregistrer')}</button></div>
             </form>`;
         }
 
@@ -727,35 +727,35 @@ export function mount(root, { navigate, chooseApp }) {
                         <h2>${d.name}</h2>
                         <div class="row mt-s"><span class="mono small soft">${d.devEui}</span><button class="btn btn-ghost btn-xs" data-act2="copy" data-v="${d.devEui}">${icon('copy')}</button></div>
                     </div>
-                    <button class="btn btn-ghost btn-icon" data-act2="close" aria-label="Fermer">${icon('x')}</button>
+                    <button class="btn btn-ghost btn-icon" data-act2="close" aria-label="${t('Fermer')}">${icon('x')}</button>
                 </div>
                 <div class="drawer-body">
                     <div class="row-wrap" style="margin-bottom:1rem">
-                        <button class="btn btn-sm" data-act2="edit">${icon('edit')} Modifier</button>
-                        ${link ? html`<a class="btn btn-sm" href="${link}" target="_blank" rel="noopener noreferrer">${icon('external')} Ouvrir dans ChirpStack</a>` : ''}
+                        <button class="btn btn-sm" data-act2="edit">${icon('edit')} ${t('Modifier')}</button>
+                        ${link ? html`<a class="btn btn-sm" href="${link}" target="_blank" rel="noopener noreferrer">${icon('external')} ${t('Ouvrir dans ChirpStack')}</a>` : ''}
                         <span class="spacer"></span>
-                        <button class="btn btn-sm btn-danger" data-act2="delete">${icon('trash')} Supprimer</button>
+                        <button class="btn btn-sm btn-danger" data-act2="delete">${icon('trash')} ${t('Supprimer')}</button>
                     </div>
                     ${editing && dev ? editForm(dev) : html`
                     <dl class="kv">
                         <dt>Device Profile</dt><dd>${d.deviceProfileName || profileName(d.deviceProfileId)}</dd>
-                        <dt>Description</dt><dd>${d.description || html`<span class="dim">—</span>`}</dd>
-                        <dt>Dernier message</dt><dd>${fmtDate(d.lastSeenAt)} <span class="dim">(${timeAgo(d.lastSeenAt)})</span></dd>
-                        <dt>Pile</dt><dd>${batteryCell(d)}${d.deviceStatus?.margin !== undefined ? html` <span class="dim small">· marge ${d.deviceStatus.margin} dB</span>` : ''}</dd>
+                        <dt>${t('Description')}</dt><dd>${d.description || html`<span class="dim">—</span>`}</dd>
+                        <dt>${t('Dernier message')}</dt><dd>${fmtDate(d.lastSeenAt)} <span class="dim">(${timeAgo(d.lastSeenAt)})</span></dd>
+                        <dt>${t('Pile')}</dt><dd>${batteryCell(d)}${d.deviceStatus?.margin !== undefined ? html` <span class="dim small">· ${t('marge {m} dB', { m: d.deviceStatus.margin })}</span>` : ''}</dd>
                         <dt>JoinEUI</dt><dd class="mono small">${dev ? dev.joinEui || '—' : '…'}</dd>
-                        <dt>Créé le</dt><dd>${fmtDate(d.createdAt)}</dd>
-                        ${dev?.isDisabled ? html`<dt>État</dt><dd class="warn">désactivé</dd>` : ''}
-                        <dt>Clés</dt><dd>${keys === undefined ? html`<button class="btn btn-xs" data-act2="keys">${icon('eye')} afficher</button>`
-                            : keys === null ? html`<span class="dim">aucune clé (ABP ou non provisionné)</span>`
+                        <dt>${t('Créé le')}</dt><dd>${fmtDate(d.createdAt)}</dd>
+                        ${dev?.isDisabled ? html`<dt>${t('État')}</dt><dd class="warn">${t('désactivé')}</dd>` : ''}
+                        <dt>${t('Clés')}</dt><dd>${keys === undefined ? html`<button class="btn btn-xs" data-act2="keys">${icon('eye')} ${t('afficher')}</button>`
+                            : keys === null ? html`<span class="dim">${t('aucune clé (ABP ou non provisionné)')}</span>`
                             : html`<div class="secret">${keys.nwkKey}<button class="btn btn-ghost btn-xs" data-act2="copy" data-v="${keys.nwkKey}">${icon('copy')}</button></div>
                                 ${keys.appKey && !/^0+$/.test(keys.appKey) ? html`<div class="secret dim">appKey ${keys.appKey}</div>` : ''}`}</dd>
                     </dl>
-                    <h3 class="section-title" style="font-size:14px;margin-top:1.5rem">Tags</h3>
-                    ${Object.keys(d.tags || {}).length ? html`<div class="tags">${Object.entries(d.tags).map(([k, v]) => html`<span class="tag"><span class="k">${k}</span><span class="v">${v}</span></span>`)}</div>` : html`<p class="dim small">Aucun tag.</p>`}
-                    <h3 class="section-title" style="font-size:14px;margin-top:1.5rem">Historique
-                        <span class="end row"><span class="seg">${Object.entries(PERIODS).map(([v, p]) => html`<button class="${period === v ? 'on' : ''}" data-act2="period" data-v="${v}">${p.label}</button>`)}</span>
-                        <button class="btn btn-sm btn-ghost" data-act2="csv" title="Exporter l'historique (CSV)" ${metrics && !metrics.error ? '' : 'disabled'}>${icon('download')}</button>
-                        <button class="btn btn-sm" data-act2="expand" title="Ouvrir dans l'outil d'historique">${icon('expand')} Agrandir</button></span></h3>
+                    <h3 class="section-title" style="font-size:14px;margin-top:1.5rem">${t('Tags')}</h3>
+                    ${Object.keys(d.tags || {}).length ? html`<div class="tags">${Object.entries(d.tags).map(([k, v]) => html`<span class="tag"><span class="k">${k}</span><span class="v">${v}</span></span>`)}</div>` : html`<p class="dim small">${t('Aucun tag.')}</p>`}
+                    <h3 class="section-title" style="font-size:14px;margin-top:1.5rem">${t('Historique')}
+                        <span class="end row"><span class="seg">${Object.entries(PERIODS).map(([v, p]) => html`<button class="${period === v ? 'on' : ''}" data-act2="period" data-v="${v}">${t(p.label)}</button>`)}</span>
+                        <button class="btn btn-sm btn-ghost" data-act2="csv" title="${t('Exporter l’historique (CSV)')}" ${metrics && !metrics.error ? '' : 'disabled'}>${icon('download')}</button>
+                        <button class="btn btn-sm" data-act2="expand" title="${t('Ouvrir dans l’outil d’historique')}">${icon('expand')} ${t('Agrandir')}</button></span></h3>
                     <div id="dv-metrics">${metricsBlock()}</div>`}
                 </div>`);
         }
@@ -821,12 +821,12 @@ export function mount(root, { navigate, chooseApp }) {
             if (act === 'addtag') {
                 const r = document.createElement('div');
                 r.className = 'row';
-                render(r, html`<input type="text" class="sm mono" placeholder="clé" data-k style="max-width:200px"><span class="dim">=</span><input type="text" class="sm" placeholder="valeur" data-v>`);
+                render(r, html`<input type="text" class="sm mono" placeholder="${t('clé')}" data-k style="max-width:200px"><span class="dim">=</span><input type="text" class="sm" placeholder="${t('valeur')}" data-v>`);
                 $('#dv-tags', dr).appendChild(r);
                 $('[data-k]', r).focus();
             }
             if (act === 'delete') {
-                const ok = await confirmDialog({ title: 'Supprimer ce device ?', message: html`<strong>${d0.name}</strong> (<span class="mono">${eui}</span>) sera supprimé définitivement de ChirpStack.`, confirm: 'Supprimer', danger: true });
+                const ok = await confirmDialog({ title: t('Supprimer ce device ?'), message: raw(t('<strong>{name}</strong> (<span class="mono">{eui}</span>) sera supprimé définitivement de ChirpStack.', { name: esc(d0.name), eui: esc(eui) })), confirm: t('Supprimer'), danger: true });
                 if (!ok) return;
                 try {
                     const snap = await ops.snapshot(eui);
@@ -835,12 +835,12 @@ export function mount(root, { navigate, chooseApp }) {
                     sel.delete(eui);
                     close();
                     draw();
-                    toast('Device supprimé.', { action: 'Annuler', onAction: async () => {
+                    toast(t('Device supprimé.'), { action: t('Annuler'), onAction: async () => {
                         try {
                             await ops.restore(snap);
                             invalidate(app.id);
                             load();
-                            toast('Device recréé.');
+                            toast(t('Device recréé.'));
                         } catch (err) { toast(api.humanize(err), { type: 'err' }); }
                     }, duration: 8000 });
                 } catch (err) { toast(api.humanize(err), { type: 'err' }); }
@@ -853,7 +853,7 @@ export function mount(root, { navigate, chooseApp }) {
             for (const r of $$('#dv-tags .row', dr)) {
                 const k = $('[data-k]', r).value.trim();
                 if (!k) continue;
-                if (!isValidTagKey(k)) return toast(`Clé de tag invalide : « ${k} »`, { type: 'err' });
+                if (!isValidTagKey(k)) return toast(t('Clé de tag invalide : « {k} »', { k }), { type: 'err' });
                 tags[k] = $('[data-v]', r).value.trim();
             }
             const next = { ...full.device, name: $('#dv-name', dr).value.trim() || full.device.name, description: $('#dv-desc', dr).value.trim(), deviceProfileId: $('#dv-dp', dr).value, tags };
@@ -865,7 +865,7 @@ export function mount(root, { navigate, chooseApp }) {
                 drawDrawer();
                 loadMetrics();
                 draw();
-                toast('Device mis à jour.');
+                toast(t('Device mis à jour.'));
             } catch (err) {
                 toast(api.humanize(err), { type: 'err' });
             }

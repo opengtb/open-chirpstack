@@ -1,19 +1,25 @@
 // Petits graphiques SVG (sans dépendance) pour la fiche device : courbe de mesure et histogramme.
 
 import { esc, raw } from './ui.js';
+import { t, locale } from './i18n.js';
 
 const W = 520;
 const H = 130;
 const PAD_TOP = 8;
 
-const nf2 = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 });
-export const fmtVal = (v) => (v === null || v === undefined || !Number.isFinite(v) ? '—' : nf2.format(v));
+// Formateur recréé si la langue change.
+let nf2 = null;
+const nf = () => {
+    if (nf2?.resolvedOptions().locale !== locale()) nf2 = new Intl.NumberFormat(locale(), { maximumFractionDigits: 2 });
+    return nf2;
+};
+export const fmtVal = (v) => (v === null || v === undefined || !Number.isFinite(v) ? '—' : nf().format(v));
 
 export function fmtTs(t, agg) {
     const d = new Date(t);
-    if (agg === 'MONTH') return d.toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' });
-    if (agg === 'DAY') return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
-    return d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    if (agg === 'MONTH') return d.toLocaleDateString(locale(), { month: 'short', year: 'numeric' });
+    if (agg === 'DAY') return d.toLocaleDateString(locale(), { day: '2-digit', month: '2-digit' });
+    return d.toLocaleString(locale(), { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
 // Unité devinée depuis le nom de la mesure (« Index (Wh) ») ou sa clé (temperature, humidity…).
@@ -50,7 +56,7 @@ function frame(inner, { min, max, unit, first, last, agg }) {
  */
 export function lineChart(timestamps, values, { unit = '', agg = 'HOUR' } = {}) {
     const pts = values.map((v, i) => ({ v, i })).filter((p) => p.v !== null && Number.isFinite(p.v));
-    if (!pts.length) return raw('<p class="dim small">Aucune valeur sur cette période.</p>');
+    if (!pts.length) return raw(`<p class="dim small">${esc(t('Aucune valeur sur cette période.'))}</p>`);
     let min = Math.min(...pts.map((p) => p.v));
     let max = Math.max(...pts.map((p) => p.v));
     if (min === max) { min -= 1; max += 1; }
@@ -77,9 +83,9 @@ export function lineChart(timestamps, values, { unit = '', agg = 'HOUR' } = {}) 
         return `${area}<path class="line" d="${d}"/>`;
     }).join('');
     const dots = pts.length <= 60
-        ? pts.map((p) => `<circle class="dot" cx="${x(p.i).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="2.2"><title>${esc(fmtTs(timestamps[p.i], agg))} : ${esc(fmtVal(p.v))} ${esc(unit)}</title></circle>`).join('')
+        ? pts.map((p) => `<circle class="dot" cx="${x(p.i).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="2.2"><title>${esc(t('{date} : {value}', { date: fmtTs(timestamps[p.i], agg), value: `${fmtVal(p.v)} ${unit}` }))}</title></circle>`).join('')
         // Trop de points : zones invisibles pour l'infobulle
-        : pts.map((p) => `<rect class="hit" x="${(x(p.i) - W / values.length / 2).toFixed(1)}" y="0" width="${(W / values.length).toFixed(1)}" height="${H}"><title>${esc(fmtTs(timestamps[p.i], agg))} : ${esc(fmtVal(p.v))} ${esc(unit)}</title></rect>`).join('');
+        : pts.map((p) => `<rect class="hit" x="${(x(p.i) - W / values.length / 2).toFixed(1)}" y="0" width="${(W / values.length).toFixed(1)}" height="${H}"><title>${esc(t('{date} : {value}', { date: fmtTs(timestamps[p.i], agg), value: `${fmtVal(p.v)} ${unit}` }))}</title></rect>`).join('');
     return frame(paths + dots, { min, max, unit, first: timestamps[0], last: timestamps[timestamps.length - 1], agg });
 }
 
@@ -89,7 +95,7 @@ export function barChart(timestamps, values, { unit = '', agg = 'HOUR', label = 
     const bw = W / Math.max(1, vals.length);
     const bars = vals.map((v, i) => {
         const h = Math.max(v ? 2 : 1, (v / max) * (H - PAD_TOP));
-        return `<rect class="bar ${v ? '' : 'zero'}" x="${(i * bw + 1).toFixed(1)}" y="${(H - h).toFixed(1)}" width="${Math.max(1, bw - 2).toFixed(1)}" height="${h.toFixed(1)}"><title>${esc(fmtTs(timestamps[i], agg))} : ${esc(fmtVal(v))} ${esc(unit || label)}</title></rect>`;
+        return `<rect class="bar ${v ? '' : 'zero'}" x="${(i * bw + 1).toFixed(1)}" y="${(H - h).toFixed(1)}" width="${Math.max(1, bw - 2).toFixed(1)}" height="${h.toFixed(1)}"><title>${esc(t('{date} : {value}', { date: fmtTs(timestamps[i], agg), value: `${fmtVal(v)} ${unit || label}` }))}</title></rect>`;
     }).join('');
     return frame(bars, { min: 0, max, unit, first: timestamps[0], last: timestamps[timestamps.length - 1], agg });
 }

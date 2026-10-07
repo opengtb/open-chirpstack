@@ -1,5 +1,7 @@
 // Outils d'interface : rendu HTML échappé, icônes, toasts, dialogues, menus, formats.
 
+import { t, getLang, locale } from './i18n.js';
+
 // ---------- Rendu HTML sûr ----------
 // html`...` échappe toutes les valeurs interpolées, sauf celles déjà produites par html`` ou raw().
 export class Safe {
@@ -133,7 +135,7 @@ export function openDialog({ title, body, foot, wide = false, cls = '', onMount,
     const dlg = document.createElement('dialog');
     dlg.className = `${wide ? 'wide' : ''} ${cls}`;
     render(dlg, html`
-        ${title ? html`<div class="dlg-head"><h2>${title}</h2><button class="btn btn-ghost btn-icon x" data-close aria-label="Fermer">${icon('x')}</button></div>` : ''}
+        ${title ? html`<div class="dlg-head"><h2>${title}</h2><button class="btn btn-ghost btn-icon x" data-close aria-label="${t('Fermer')}">${icon('x')}</button></div>` : ''}
         <div class="dlg-body">${body}</div>
         ${foot ? html`<div class="dlg-foot">${foot}</div>` : ''}`);
     document.body.appendChild(dlg);
@@ -163,15 +165,15 @@ export function openDialog({ title, body, foot, wide = false, cls = '', onMount,
 }
 
 // Confirmation simple, ou avec saisie obligatoire (typed) pour les actions irréversibles.
-export function confirmDialog({ title, message, confirm = 'Confirmer', danger = false, typed = null }) {
+export function confirmDialog({ title, message, confirm = t('Confirmer'), danger = false, typed = null }) {
     const d = openDialog({
         title,
         body: html`<div class="stack">
             <div class="soft">${message}</div>
-            ${typed ? html`<div class="field"><label for="cfm-typed">Tapez <strong class="mono ${danger ? 'err' : 'ok'}">${typed}</strong> pour confirmer</label>
+            ${typed ? html`<div class="field"><label for="cfm-typed">${raw(t('Tapez {x} pour confirmer', { x: html`<strong class="mono ${danger ? 'err' : 'ok'}">${typed}</strong>` }))}</label>
                 <input type="text" id="cfm-typed" class="mono" autocomplete="off" autofocus></div>` : ''}
         </div>`,
-        foot: html`<button class="btn" data-close>Annuler</button>
+        foot: html`<button class="btn" data-close>${t('Annuler')}</button>
             <button class="btn ${danger ? 'btn-danger solid' : 'btn-primary'}" data-ok ${typed ? 'disabled' : ''}>${confirm}</button>`,
         onMount(dlg, close) {
             const ok = dlg.querySelector('[data-ok]');
@@ -198,7 +200,7 @@ export function closeMenu() {
 }
 
 // openMenu(anchor, { items:[{label, meta, current, value, group}], filter:true, onPick })
-export function openMenu(anchor, { items, filter = false, placeholder = 'Filtrer…', onPick, footer }) {
+export function openMenu(anchor, { items, filter = false, placeholder = t('Filtrer…'), onPick, footer }) {
     closeMenu();
     const menu = document.createElement('div');
     menu.className = 'menu';
@@ -218,7 +220,7 @@ export function openMenu(anchor, { items, filter = false, placeholder = 'Filtrer
             : it.sep ? html`<div class="menu-sep"></div>`
             : html`<button class="menu-item ${it.current ? 'current' : ''} ${i === active ? 'on' : ''}" data-i="${i}">
                 <span class="grow" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${it.label}</span>${it.meta ? html`<span class="meta">${it.meta}</span>` : ''}</button>`)
-            : html`<div class="menu-item dim">Aucun résultat</div>`);
+            : html`<div class="menu-item dim">${t('Aucun résultat')}</div>`);
     };
 
     render(menu, html`${filter ? html`<input type="search" class="sm" placeholder="${placeholder}" aria-label="${placeholder}">` : ''}<div class="menu-list"></div>${footer || ''}`);
@@ -285,7 +287,7 @@ export async function copy(text) {
         document.execCommand('copy');
         ta.remove();
     }
-    toast(`Copié : ${text.length > 40 ? text.slice(0, 40) + '…' : text}`);
+    toast(t('Copié : {text}', { text: text.length > 40 ? text.slice(0, 40) + '…' : text }));
 }
 
 // Zone de dépôt + input file caché.
@@ -306,27 +308,44 @@ export function bindDrop(zone, input, onFile) {
 }
 
 // ---------- Formats ----------
-const nf = new Intl.NumberFormat('fr-FR');
-export const fmtNum = (n) => nf.format(n);
-export const plural = (n, one, many = one + 's') => `${fmtNum(n)} ${n > 1 ? many : one}`;
+// Formateur recréé quand la langue change (créé à la demande, pas au chargement du module).
+let nf = null;
+let nfLocale = '';
+export const fmtNum = (n) => {
+    const loc = locale();
+    if (!nf || nfLocale !== loc) {
+        nf = new Intl.NumberFormat(loc);
+        nfLocale = loc;
+    }
+    return nf.format(n);
+};
+// Français : 0 et 1 au singulier ; anglais : seul 1 est au singulier.
+export const plural = (n, one, many = one + 's') => `${fmtNum(n)} ${(getLang() === 'fr' ? n > 1 : n !== 1) ? many : one}`;
 
 export function timeAgo(iso) {
-    if (!iso) return 'jamais';
+    if (!iso) return t('jamais');
     const s = (Date.now() - new Date(iso).getTime()) / 1000;
-    if (s < 60) return "à l'instant";
+    if (s < 60) return t('à l’instant');
     const m = s / 60;
-    if (m < 60) return `il y a ${Math.floor(m)} min`;
+    if (m < 60) return t('il y a {n} min', { n: Math.floor(m) });
     const h = m / 60;
-    if (h < 24) return `il y a ${Math.floor(h)} h`;
+    if (h < 24) return t('il y a {n} h', { n: Math.floor(h) });
     const d = h / 24;
-    if (d < 30) return `il y a ${Math.floor(d)} j`;
-    if (d < 365) return `il y a ${Math.floor(d / 30)} mois`;
-    return `il y a ${Math.floor(d / 365)} an${d >= 730 ? 's' : ''}`;
+    if (d < 30) {
+        const n = Math.floor(d);
+        return n > 1 ? t('il y a {n} j', { n }) : t('il y a 1 j');
+    }
+    if (d < 365) {
+        const n = Math.floor(d / 30);
+        return n > 1 ? t('il y a {n} mois', { n }) : t('il y a 1 mois');
+    }
+    const n = Math.floor(d / 365);
+    return n > 1 ? t('il y a {n} ans', { n }) : t('il y a 1 an');
 }
 
 export function fmtDate(iso) {
     if (!iso) return '—';
-    return new Date(iso).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
+    return new Date(iso).toLocaleString(locale(), { dateStyle: 'short', timeStyle: 'short' });
 }
 
 export const today = () => new Date().toISOString().slice(0, 10);

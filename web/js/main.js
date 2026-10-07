@@ -3,8 +3,9 @@
 import * as api from './api.js';
 import * as store from './store.js';
 import { session, listen, setApp, loadTenantData, clearAll, devices } from './state.js';
-import { $, $$, html, render, icon, LOGO, openMenu, closeMenu, toast, fmtNum } from './ui.js';
+import { $, $$, html, raw, render, icon, LOGO, openMenu, closeMenu, toast, fmtNum } from './ui.js';
 import { openPalette } from './palette.js';
+import { t, getLang, setLang, LANGS, cmd } from './i18n.js';
 
 const CARET = icon('chevron', 'caret');
 
@@ -17,8 +18,9 @@ import * as searchView from './views/search.js';
 import * as historyView from './views/history.js';
 import * as settingsView from './views/settings.js';
 
+// Libellés en français (clés de traduction) : t(route.label) à l'affichage.
 export const ROUTES = [
-    { path: 'vue', label: 'vue d\'ensemble', icon: 'grid', view: homeView, group: 'application' },
+    { path: 'vue', label: 'vue d’ensemble', icon: 'grid', view: homeView, group: 'application' },
     { path: 'devices', label: 'devices', icon: 'list', view: devicesView, group: 'application', needsApp: true, count: true },
     { path: 'import', label: 'importer', icon: 'upload', view: importView, group: 'application', needsApp: true },
     { path: 'tags', label: 'tags par fichier', icon: 'tag', view: tagsView, group: 'application', needsApp: true },
@@ -52,39 +54,65 @@ export function setTheme(mode) {
         const manual = p.theme === 'manu' ? (isDark ? 'light' : 'dark') : (isDark ? 'dark' : 'light');
         store.setPrefs({ theme: 'manu', manual });
         applyTheme();
-        toast(`MANU — thème ${manual === 'dark' ? 'sombre' : 'clair'} forcé. Recliquez pour basculer.`);
+        toast(manual === 'dark' ? t('MANU — thème sombre forcé. Recliquez pour basculer.') : t('MANU — thème clair forcé. Recliquez pour basculer.'));
     } else {
         store.setPrefs({ theme: 'auto' });
         applyTheme();
-        toast('AUTO — le thème suit celui du système.');
+        toast(t('AUTO — le thème suit celui du système.'));
     }
 }
 
 function themeSwitch() {
-    return html`<div class="theme-switch" role="radiogroup" aria-label="Commutateur de thème">
-        <button type="button" role="radio" data-mode="auto" title="Suivre le thème du système">AUTO</button>
-        <button type="button" role="radio" data-mode="manu" title="Forcer le thème — chaque clic bascule clair/sombre">MANU</button>
-        <button type="button" role="radio" data-mode="hors" title="Mettre l'outil hors service">HORS</button>
+    return html`<div class="theme-switch" role="radiogroup" aria-label="${t('Commutateur de thème')}">
+        <button type="button" role="radio" data-mode="auto" title="${t('Suivre le thème du système')}">AUTO</button>
+        <button type="button" role="radio" data-mode="manu" title="${t('Forcer le thème — chaque clic bascule clair/sombre')}">MANU</button>
+        <button type="button" role="radio" data-mode="hors" title="${t('Mettre l’outil hors service')}">HORS</button>
     </div>`;
 }
+
+// ---------- Langue (FR / EN) ----------
+function langSwitch() {
+    const cur = getLang();
+    return html`<div class="lang-switch" role="radiogroup" aria-label="${t('Langue de l’interface')}">
+        ${LANGS.map((l) => html`<button type="button" role="radio" data-lang="${l.code}" lang="${l.code}" title="${l.name}" aria-checked="${l.code === cur}">${l.label}</button>`)}
+    </div>`;
+}
+
+// Change la langue et redessine l'écran courant sans perdre la session (clé API, tenant, application, cache).
+export function switchLang(code) {
+    if (code === getLang()) return;
+    setLang(code);
+    if (session.connected) {
+        const route = current || ROUTES[0];
+        renderShell();
+        navigate(route.path, true);
+    } else {
+        showConnect();
+    }
+}
+
+document.addEventListener('click', (e) => {
+    const b = e.target.closest('.lang-switch button');
+    if (b) switchLang(b.dataset.lang);
+});
 
 function showHors() {
     const el = document.createElement('div');
     el.className = 'hors';
     render(el, html`<div class="inner">
         <span class="lamp" aria-hidden="true"></span>
-        <p class="sub">// défaut général</p>
-        <p class="big">Automate à l'arrêt.</p>
-        <p class="sub">Quelqu'un a mis le commutateur sur HORS. Aucune donnée ne remonte, plus aucun device n'est importé…</p>
-        <p class="amber">Vos devices, eux, continuent d'émettre. Promis.</p>
-        <button class="btn btn-primary" autofocus>$ réarmer →</button>
+        <p class="sub">// ${t('défaut général')}</p>
+        <p class="big">${t('Automate à l’arrêt.')}</p>
+        <p class="sub">${t('Quelqu’un a mis le commutateur sur HORS. Aucune donnée ne remonte, plus aucun device n’est importé…')}</p>
+        <p class="amber">${t('Vos devices, eux, continuent d’émettre. Promis.')}</p>
+        <button class="btn btn-primary" autofocus>$ ${t('réarmer')} →</button>
     </div>`);
     document.body.appendChild(el);
     const btn = $('button', el);
     btn.focus();
     btn.addEventListener('click', () => {
         el.remove();
-        toast('Réarmement effectué — retour en AUTO.');
+        toast(t('Réarmement effectué — retour en AUTO.'));
     });
 }
 
@@ -101,9 +129,11 @@ function showConnect() {
         <header class="topbar"><div class="topbar-inner">
             <a class="logo" href="#/" aria-label="open/chirpstack">${LOGO}<span>open<span class="slash">/</span><span class="accent">chirpstack</span></span></a>
             <span class="spacer"></span>
+            ${langSwitch()}
             ${themeSwitch()}
         </div></header>
         <main id="connect-root"></main>`);
+    document.title = 'open/chirpstack';
     applyTheme();
     cleanup = connectView.mount($('#connect-root'), { onConnected });
 }
@@ -130,7 +160,7 @@ export async function switchTenant(tenant) {
         session.app = session.apps.find((a) => a.id === last.appId) || (session.apps.length === 1 ? session.apps[0] : null);
         renderShell();
         navigate(current?.needsApp && !session.app ? 'vue' : current?.path || 'vue', true);
-        toast(`Tenant : ${tenant.name}`);
+        toast(t('Tenant : {name}', { name: tenant.name }));
     } catch (e) {
         toast(api.humanize(e), { type: 'err' });
     }
@@ -160,15 +190,16 @@ function renderShell() {
     const demo = api.isDemo();
     render(app, html`
         <header class="topbar"><div class="topbar-inner">
-            <a class="logo" href="#/vue" aria-label="open/chirpstack — vue d'ensemble">${LOGO}<span>open<span class="slash">/</span><span class="accent">chirpstack</span></span></a>
-            <nav class="context" aria-label="Contexte" id="context"></nav>
+            <a class="logo" href="#/vue" aria-label="open/chirpstack — ${t('vue d’ensemble')}">${LOGO}<span>open<span class="slash">/</span><span class="accent">chirpstack</span></span></a>
+            <nav class="context" aria-label="${t('Contexte')}" id="context"></nav>
             <span class="spacer"></span>
-            <button class="tb-btn" data-palette title="Commandes (Ctrl+K)" aria-label="Ouvrir la palette de commandes">&gt;_</button>
+            <button class="tb-btn" data-palette title="${t('Commandes (Ctrl+K)')}" aria-label="${t('Ouvrir la palette de commandes')}">&gt;_</button>
+            ${langSwitch()}
             ${themeSwitch()}
         </div></header>
-        ${demo ? html`<div class="banner amber"><span class="pill amber">démo</span>
-            <span><strong>Données fictives</strong> — rien n'est envoyé à un serveur, tout est remis à zéro au rechargement. Essayez tout, y compris la suppression.</span>
-            <span class="spacer"></span><button class="btn btn-sm" data-logout>Se connecter à mon ChirpStack →</button></div>` : ''}
+        ${demo ? html`<div class="banner amber"><span class="pill amber">${t('démo')}</span>
+            <span>${raw(t('<strong>Données fictives</strong> — rien n’est envoyé à un serveur, tout est remis à zéro au rechargement. Essayez tout, y compris la suppression.'))}</span>
+            <span class="spacer"></span><button class="btn btn-sm" data-logout>${t('Se connecter à mon ChirpStack')} →</button></div>` : ''}
         <div class="shell">
             <aside class="sidebar" id="sidebar"></aside>
             <main class="main" id="view" tabindex="-1"></main>
@@ -183,13 +214,13 @@ function renderShell() {
 function updateTopbar() {
     const ctx = $('#context');
     if (!ctx) return;
-    const host = api.isDemo() ? 'démo' : api.serverUrl().replace(/^https?:\/\//, '');
+    const host = api.isDemo() ? t('démo') : api.serverUrl().replace(/^https?:\/\//, '');
     render(ctx, html`
         <button class="ctx-chip" data-ctx="server" title="${api.serverUrl()}"><span class="ctx-dot ${api.isDemo() ? 'demo' : ''}"></span><span class="label">${host}</span>${CARET}</button>
         <span class="sep">/</span>
         <button class="ctx-chip" data-ctx="tenant" title="Tenant"><span class="label">${session.tenant?.name || '—'}</span>${session.tenants.length > 1 ? html`${CARET}` : ''}</button>
         <span class="sep">/</span>
-        <button class="ctx-chip app" data-ctx="app" title="Application (Ctrl+K pour chercher)"><span class="label">${session.app?.name || 'choisir une application'}</span>${CARET}</button>`);
+        <button class="ctx-chip app" data-ctx="app" title="${t('Application (Ctrl+K pour chercher)')}"><span class="label">${session.app?.name || t('choisir une application')}</span>${CARET}</button>`);
     ctx.onclick = (e) => {
         const b = e.target.closest('[data-ctx]');
         if (!b) return;
@@ -203,7 +234,7 @@ function updateTopbar() {
 export function appMenu(anchor) {
     openMenu(anchor, {
         filter: session.apps.length > 6,
-        placeholder: 'Filtrer les applications…',
+        placeholder: t('Filtrer les applications…'),
         items: session.apps.map((a) => ({ label: a.name, value: a, current: a.id === session.app?.id, meta: session.appCounts[a.id] !== undefined ? fmtNum(session.appCounts[a.id]) : '' })),
         onPick: (it) => chooseApp(it.value),
     });
@@ -212,8 +243,8 @@ export function appMenu(anchor) {
 function tenantMenu(anchor) {
     openMenu(anchor, {
         filter: session.tenants.length > 6,
-        placeholder: 'Filtrer les tenants…',
-        items: session.tenants.map((t) => ({ label: t.name, value: t, current: t.id === session.tenant?.id })),
+        placeholder: t('Filtrer les tenants…'),
+        items: session.tenants.map((tn) => ({ label: tn.name, value: tn, current: tn.id === session.tenant?.id })),
         onPick: (it) => switchTenant(it.value),
     });
 }
@@ -222,9 +253,9 @@ function serverMenu(anchor) {
     const others = store.servers().filter((s) => s.url !== api.serverUrl());
     openMenu(anchor, {
         items: [
-            { group: api.isDemo() ? 'mode démo' : api.serverUrl() },
-            { label: 'Se déconnecter', value: 'logout', meta: 'clé oubliée' },
-            ...(others.length ? [{ group: 'autres serveurs' }, ...others.map((s) => ({ label: s.name, meta: s.url.replace(/^https?:\/\//, ''), value: s }))] : []),
+            { group: api.isDemo() ? t('mode démo') : api.serverUrl() },
+            { label: t('Se déconnecter'), value: 'logout', meta: t('clé oubliée') },
+            ...(others.length ? [{ group: t('autres serveurs') }, ...others.map((s) => ({ label: s.name, meta: s.url.replace(/^https?:\/\//, ''), value: s }))] : []),
         ],
         onPick: (it) => {
             if (it.value === 'logout') return logout();
@@ -237,17 +268,17 @@ function serverMenu(anchor) {
 function renderSidebar() {
     const side = $('#sidebar');
     if (!side) return;
-    const groups = [['application', '// application'], ['tenant', '// tenant'], ['outil', '// outil']];
+    const groups = ['application', 'tenant', 'outil'];
     const n = session.app ? session.appCounts[session.app.id] : undefined;
     render(side, html`
-        ${groups.map(([g, title]) => html`<div class="nav-group"><div class="nav-title">${title}</div>
+        ${groups.map((g) => html`<div class="nav-group"><div class="nav-title">// ${t(g)}</div>
             ${ROUTES.filter((r) => r.group === g).map((r) => html`<a class="nav-link ${current?.path === r.path ? 'active' : ''}" href="#/${r.path}" ${current?.path === r.path ? html`aria-current="page"` : ''}>
-                ${icon(r.icon)}<span>${r.label}</span>${r.count && n !== undefined ? html`<span class="count">${fmtNum(n)}</span>` : ''}</a>`)}
+                ${icon(r.icon)}<span>${t(r.label)}</span>${r.count && n !== undefined ? html`<span class="count">${fmtNum(n)}</span>` : ''}</a>`)}
         </div>`)}
         <div class="sidebar-foot">
-            <p><kbd>Ctrl</kbd> <kbd>K</kbd> commandes</p>
-            <p><kbd>/</kbd> rechercher</p>
-            <p class="mt-s">Clé API gardée en mémoire seulement.</p>
+            <p><kbd>Ctrl</kbd> <kbd>K</kbd> ${t('commandes')}</p>
+            <p><kbd>/</kbd> ${t('rechercher')}</p>
+            <p class="mt-s">${t('Clé API gardée en mémoire seulement.')}</p>
         </div>`);
 }
 listen('counts', renderSidebar);
@@ -291,19 +322,19 @@ function show(route) {
     } else {
         cleanup = route.view.mount(view, { navigate, chooseApp, appMenu }) || null;
     }
-    document.title = `${route.label} · open/chirpstack`;
+    document.title = `${t(route.label)} · open/chirpstack`;
 }
 
 // Écran intermédiaire quand un outil a besoin d'une application et qu'aucune n'est choisie.
 function mountAppPicker(view, route) {
     render(view, html`<div class="page narrow">
-        <div class="page-head"><div><div class="eyebrow">$ cs ${route.path}</div><h1>Quelle application ?</h1>
-            <p class="lede">Choisissez l'application sur laquelle travailler. Elle restera sélectionnée pour les autres outils.</p></div></div>
+        <div class="page-head"><div><div class="eyebrow">$ cs ${cmd(route.path)}</div><h1>${t('Quelle application ?')}</h1>
+            <p class="lede">${t('Choisissez l’application sur laquelle travailler. Elle restera sélectionnée pour les autres outils.')}</p></div></div>
         ${session.apps.length ? html`<div class="table-wrap"><table class="tbl"><tbody>${session.apps.map((a) => html`<tr class="clickable" data-app="${a.id}">
             <td class="name">${a.name}${a.description ? html`<small>${a.description}</small>` : ''}</td>
-            <td class="dim small nowrap" style="text-align:right">${session.appCounts[a.id] !== undefined ? `${fmtNum(session.appCounts[a.id])} devices` : ''}</td>
-            <td style="width:1%"><span class="btn btn-sm">ouvrir →</span></td></tr>`)}</tbody></table></div>`
-        : html`<div class="empty-state"><h3>Aucune application dans ce tenant</h3><p>Créez-en une dans ChirpStack, puis rechargez cette page.</p></div>`}
+            <td class="dim small nowrap" style="text-align:right">${session.appCounts[a.id] !== undefined ? t('{n} devices', { n: fmtNum(session.appCounts[a.id]) }) : ''}</td>
+            <td style="width:1%"><span class="btn btn-sm">${t('ouvrir')} →</span></td></tr>`)}</tbody></table></div>`
+        : html`<div class="empty-state"><h3>${t('Aucune application dans ce tenant')}</h3><p>${t('Créez-en une dans ChirpStack, puis rechargez cette page.')}</p></div>`}
     </div>`);
     const h = (e) => {
         const tr = e.target.closest('[data-app]');

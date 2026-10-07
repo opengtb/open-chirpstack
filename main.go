@@ -41,7 +41,7 @@ func main() {
 	// Garder le même port conserve aussi les réglages enregistrés dans le navigateur.
 	if *port != 0 && alreadyRunning(*port) {
 		url := "http://127.0.0.1:" + strconv.Itoa(*port) + "/"
-		fmt.Println("Open ChirpStack est déjà lancé : " + url)
+		fmt.Println("Open ChirpStack est déjà lancé / is already running: " + url)
 		if !*noBrowser {
 			_ = openBrowser(url)
 		}
@@ -76,6 +76,9 @@ func main() {
 	fmt.Println()
 	fmt.Println("   Gardez cette fenêtre ouverte pendant l'utilisation.")
 	fmt.Println("   Fermez-la (ou Ctrl+C) pour arrêter l'outil.")
+	fmt.Println()
+	fmt.Println("   Keep this window open while using the tool.")
+	fmt.Println("   Close it (or press Ctrl+C) to stop.")
 	fmt.Println("  ==================================================")
 	fmt.Println()
 
@@ -83,7 +86,7 @@ func main() {
 		go func() {
 			time.Sleep(300 * time.Millisecond)
 			if err := openBrowser(url); err != nil {
-				fmt.Println("   Ouvrez manuellement : " + url)
+				fmt.Println("   Ouvrez manuellement / open manually: " + url)
 			}
 		}()
 	}

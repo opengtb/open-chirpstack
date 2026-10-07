@@ -2,15 +2,22 @@
 // infobulle multi-courbes, zoom par sélection, double-clic pour revenir.
 // Les couleurs sont écrites en attributs (pas en classes CSS) pour que l'export PNG reste fidèle.
 
+import { locale } from './i18n.js';
+
 const NS = 'http://www.w3.org/2000/svg';
 const HOUR = 3600e3;
 const DAY = 24 * HOUR;
 
-const nf = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 });
-export const fmtNumber = (v) => (v === null || v === undefined || !Number.isFinite(v) ? '—' : nf.format(v));
+// Formateur recréé si la langue change.
+let nf = null;
+const numFmt = () => {
+    if (nf?.resolvedOptions().locale !== locale()) nf = new Intl.NumberFormat(locale(), { maximumFractionDigits: 2 });
+    return nf;
+};
+export const fmtNumber = (v) => (v === null || v === undefined || !Number.isFinite(v) ? '—' : numFmt().format(v));
 
 export function fmtTime(t, withYear = false) {
-    return new Date(t).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', ...(withYear ? { year: 'numeric' } : {}), hour: '2-digit', minute: '2-digit' });
+    return new Date(t).toLocaleString(locale(), { day: '2-digit', month: '2-digit', ...(withYear ? { year: 'numeric' } : {}), hour: '2-digit', minute: '2-digit' });
 }
 
 function el(tag, attrs = {}, parent) {
@@ -49,19 +56,19 @@ function timeTicks(from, to, width) {
         d.setDate(1); d.setHours(0, 0, 0, 0);
         const months = Math.round(step / (30 * DAY));
         while (d.getTime() < from) d.setMonth(d.getMonth() + 1);
-        while (d.getTime() <= to) { ticks.push({ t: d.getTime(), label: d.toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' }) }); d.setMonth(d.getMonth() + months); }
+        while (d.getTime() <= to) { ticks.push({ t: d.getTime(), label: d.toLocaleDateString(locale(), { month: 'short', year: '2-digit' }) }); d.setMonth(d.getMonth() + months); }
     } else if (step >= DAY) {
         d.setHours(0, 0, 0, 0);
         while (d.getTime() < from) d.setDate(d.getDate() + 1);
         const n = Math.round(step / DAY);
-        while (d.getTime() <= to) { ticks.push({ t: d.getTime(), label: d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }) }); d.setDate(d.getDate() + n); }
+        while (d.getTime() <= to) { ticks.push({ t: d.getTime(), label: d.toLocaleDateString(locale(), { day: '2-digit', month: '2-digit' }) }); d.setDate(d.getDate() + n); }
     } else {
         d.setMinutes(0, 0, 0);
         const h = Math.round(step / HOUR);
         while (d.getTime() < from || d.getHours() % h) d.setHours(d.getHours() + 1);
         while (d.getTime() <= to) {
             const midnight = d.getHours() === 0;
-            ticks.push({ t: d.getTime(), label: midnight ? d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }) : d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }), strong: midnight });
+            ticks.push({ t: d.getTime(), label: midnight ? d.toLocaleDateString(locale(), { day: '2-digit', month: '2-digit' }) : d.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' }), strong: midnight });
             d.setHours(d.getHours() + h);
         }
     }

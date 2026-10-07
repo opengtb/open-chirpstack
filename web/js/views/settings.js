@@ -2,21 +2,22 @@
 
 import * as api from '../api.js';
 import * as store from '../store.js';
-import { $, html, render, icon, on, plural, toast, download, confirmDialog, today } from '../ui.js';
+import { $, html, render, icon, on, plural, toast, download, confirmDialog, today, raw } from '../ui.js';
+import { t, cmd } from '../i18n.js';
 
 export function mount(root) {
     let alive = true;
     let editing = null; // { id?, name, requiredTags: [] }
 
     function profileForm() {
-        if (!editing) return html`<button class="btn btn-primary" data-act="new">${icon('plus')} Nouveau profil</button>`;
+        if (!editing) return html`<button class="btn btn-primary" data-act="new">${icon('plus')} ${t('Nouveau profil')}</button>`;
         return html`<form id="p-form" class="card stack" style="background:var(--bg)">
-            <div class="field"><label for="p-name">Nom du profil</label><input type="text" id="p-name" value="${editing.name}" placeholder="Ex. : Client A — capteurs CVC" autofocus></div>
-            <div class="field"><label for="p-tag">Tags obligatoires</label>
-                <div class="chip-input" id="p-chips">${editing.requiredTags.map((t) => html`<span class="chip">${t}<button type="button" data-act="rmtag" data-t="${t}" aria-label="Retirer ${t}">×</button></span>`)}
-                    <input type="text" id="p-tag" placeholder="tapez un tag puis Entrée (ex. batiment, etage, zone)"></div>
-                <p class="hint">À chaque import avec ce profil, ces tags devront être renseignés (colonne du fichier ou valeur fixe).</p></div>
-            <div class="row"><span class="spacer"></span><button type="button" class="btn" data-act="cancel">Annuler</button><button type="submit" class="btn btn-primary">${editing.id ? 'Enregistrer' : 'Créer le profil'}</button></div>
+            <div class="field"><label for="p-name">${t('Nom du profil')}</label><input type="text" id="p-name" value="${editing.name}" placeholder="${t('Ex. : Client A — capteurs CVC')}" autofocus></div>
+            <div class="field"><label for="p-tag">${t('Tags obligatoires')}</label>
+                <div class="chip-input" id="p-chips">${editing.requiredTags.map((tag) => html`<span class="chip">${tag}<button type="button" data-act="rmtag" data-t="${tag}" aria-label="${t('Retirer {tag}', { tag })}">×</button></span>`)}
+                    <input type="text" id="p-tag" placeholder="${t('tapez un tag puis Entrée (ex. batiment, etage, zone)')}"></div>
+                <p class="hint">${t('À chaque import avec ce profil, ces tags devront être renseignés (colonne du fichier ou valeur fixe).')}</p></div>
+            <div class="row"><span class="spacer"></span><button type="button" class="btn" data-act="cancel">${t('Annuler')}</button><button type="submit" class="btn btn-primary">${editing.id ? t('Enregistrer') : t('Créer le profil')}</button></div>
         </form>`;
     }
 
@@ -26,53 +27,53 @@ export function mount(root) {
         const servers = store.servers();
         render(root, html`<div class="page narrow">
             <div class="page-head"><div>
-                <div class="eyebrow">$ cs réglages</div>
-                <h1>Réglages</h1>
-                <p class="lede">Enregistrés dans ce navigateur uniquement. Les clés API ne sont jamais conservées.</p>
+                <div class="eyebrow">$ cs ${cmd('reglages')}</div>
+                <h1>${t('Réglages')}</h1>
+                <p class="lede">${t('Enregistrés dans ce navigateur uniquement. Les clés API ne sont jamais conservées.')}</p>
             </div></div>
 
-            <h2 class="section-title">Profils d'import <span class="dim">— tags obligatoires</span></h2>
+            <h2 class="section-title">${t('Profils d’import')} <span class="dim">${t('— tags obligatoires')}</span></h2>
             ${profiles.length ? html`<div class="table-wrap"><table class="tbl"><tbody>${profiles.map((p) => html`<tr>
                 <td class="name">${p.name}</td>
-                <td><div class="tags">${p.requiredTags.length ? p.requiredTags.map((t) => html`<span class="tag"><span class="k">${t}</span></span>`) : html`<span class="dim small">aucun tag</span>`}</div></td>
-                <td class="nowrap" style="text-align:right"><button class="btn btn-sm btn-ghost" data-act="edit" data-id="${p.id}">${icon('edit')} Modifier</button><button class="btn btn-sm btn-ghost" data-act="delprof" data-id="${p.id}" aria-label="Supprimer">${icon('trash')}</button></td>
-            </tr>`)}</tbody></table></div>` : html`<p class="dim small" style="margin-bottom:.75rem">Aucun profil. Un profil impose des tags à chaque import (par exemple <code>batiment</code>, <code>etage</code>) : pratique quand vos intégrations en dépendent.</p>`}
+                <td><div class="tags">${p.requiredTags.length ? p.requiredTags.map((tag) => html`<span class="tag"><span class="k">${tag}</span></span>`) : html`<span class="dim small">${t('aucun tag')}</span>`}</div></td>
+                <td class="nowrap" style="text-align:right"><button class="btn btn-sm btn-ghost" data-act="edit" data-id="${p.id}">${icon('edit')} ${t('Modifier')}</button><button class="btn btn-sm btn-ghost" data-act="delprof" data-id="${p.id}" aria-label="${t('Supprimer')}">${icon('trash')}</button></td>
+            </tr>`)}</tbody></table></div>` : html`<p class="dim small" style="margin-bottom:.75rem">${raw(t('Aucun profil. Un profil impose des tags à chaque import (par exemple {a}, {b}) : pratique quand vos intégrations en dépendent.', { a: '<code>batiment</code>', b: '<code>etage</code>' }))}</p>`}
             <div class="mt">${profileForm()}</div>
 
-            <h2 class="section-title">Serveurs enregistrés</h2>
+            <h2 class="section-title">${t('Serveurs enregistrés')}</h2>
             ${servers.length ? html`<div class="table-wrap"><table class="tbl"><tbody>${servers.map((s) => html`<tr>
-                <td style="width:40%"><input type="text" class="sm" value="${s.name}" data-rename="${s.id}" aria-label="Nom du serveur"></td>
-                <td class="mono small soft">${s.url}${s.url === api.serverUrl() ? html` <span class="badge">connecté</span>` : ''}</td>
-                <td style="text-align:right"><button class="btn btn-sm btn-ghost" data-act="delsrv" data-id="${s.id}" aria-label="Oublier ce serveur">${icon('trash')}</button></td>
+                <td style="width:40%"><input type="text" class="sm" value="${s.name}" data-rename="${s.id}" aria-label="${t('Nom du serveur')}"></td>
+                <td class="mono small soft">${s.url}${s.url === api.serverUrl() ? html` <span class="badge">${t('connecté')}</span>` : ''}</td>
+                <td style="text-align:right"><button class="btn btn-sm btn-ghost" data-act="delsrv" data-id="${s.id}" aria-label="${t('Oublier ce serveur')}">${icon('trash')}</button></td>
             </tr>`)}</tbody></table></div>
-            <p class="hint">Chaque serveur auquel vous vous connectez est ajouté ici. Renommez-les pour les reconnaître sur l'écran de connexion.</p>`
-            : html`<p class="dim small">Aucun serveur enregistré.</p>`}
+            <p class="hint">${t('Chaque serveur auquel vous vous connectez est ajouté ici. Renommez-les pour les reconnaître sur l’écran de connexion.')}</p>`
+            : html`<p class="dim small">${t('Aucun serveur enregistré.')}</p>`}
 
-            <h2 class="section-title">Sauvegarde des réglages</h2>
+            <h2 class="section-title">${t('Sauvegarde des réglages')}</h2>
             <div class="row-wrap">
-                <button class="btn" data-act="export">${icon('download')} Exporter (JSON)</button>
-                <button class="btn" data-act="import">${icon('upload')} Importer…</button>
+                <button class="btn" data-act="export">${icon('download')} ${t('Exporter (JSON)')}</button>
+                <button class="btn" data-act="import">${icon('upload')} ${t('Importer…')}</button>
                 <input type="file" id="set-file" accept=".json,application/json" hidden>
             </div>
-            <p class="hint">Pour partager vos profils et serveurs avec un collègue, ou les retrouver sur un autre poste. Les clés API n'en font jamais partie.</p>
+            <p class="hint">${t('Pour partager vos profils et serveurs avec un collègue, ou les retrouver sur un autre poste. Les clés API n’en font jamais partie.')}</p>
 
-            <h2 class="section-title">Raccourcis</h2>
+            <h2 class="section-title">${t('Raccourcis')}</h2>
             <dl class="kv">
-                <dt><kbd>Ctrl</kbd> <kbd>K</kbd> ou <kbd>\`</kbd></dt><dd>palette de commandes : aller à un écran, changer d'application, chercher un DevEUI</dd>
-                <dt><kbd>/</kbd></dt><dd>rechercher dans la liste affichée</dd>
-                <dt><kbd>Maj</kbd> + clic</dt><dd>sélectionner une plage de devices</dd>
-                <dt><kbd>Échap</kbd></dt><dd>fermer une fenêtre ou la fiche d'un device</dd>
+                <dt><kbd>Ctrl</kbd> <kbd>K</kbd> ${t('ou')} <kbd>\`</kbd></dt><dd>${t('palette de commandes : aller à un écran, changer d’application, chercher un DevEUI')}</dd>
+                <dt><kbd>/</kbd></dt><dd>${t('rechercher dans la liste affichée')}</dd>
+                <dt><kbd>${t('Maj')}</kbd> ${t('+ clic')}</dt><dd>${t('sélectionner une plage de devices')}</dd>
+                <dt><kbd>${t('Échap')}</kbd></dt><dd>${t('fermer une fenêtre ou la fiche d’un device')}</dd>
             </dl>
 
-            <p class="hint" style="margin-top:2.5rem">open/chirpstack — outil libre (licence MIT) de la boîte à outils <a href="https://opengtb.com" target="_blank" rel="noopener noreferrer">OpenGTB</a>. Projet indépendant, non affilié à ChirpStack.</p>
+            <p class="hint" style="margin-top:2.5rem">${raw(t('open/chirpstack — outil libre (licence MIT) de la boîte à outils {link}. Projet indépendant, non affilié à ChirpStack.', { link: '<a href="https://opengtb.com" target="_blank" rel="noopener noreferrer">OpenGTB</a>' }))}</p>
         </div>`);
     }
 
     function addChip(input) {
-        const t = input.value.trim().replace(/,$/, '');
-        if (!t) return;
-        if (!store.isValidTagKey(t)) return toast(`Tag invalide : « ${t} »`, { type: 'err' });
-        if (!editing.requiredTags.includes(t)) editing.requiredTags.push(t);
+        const tag = input.value.trim().replace(/,$/, '');
+        if (!tag) return;
+        if (!store.isValidTagKey(tag)) return toast(t('Tag invalide : « {tag} »', { tag }), { type: 'err' });
+        if (!editing.requiredTags.includes(tag)) editing.requiredTags.push(tag);
         editing.name = $('#p-name', root).value;
         draw();
         $('#p-tag', root).focus();
@@ -95,9 +96,9 @@ export function mount(root) {
         const name = $('#p-name', root).value.trim();
         const pending = $('#p-tag', root).value.trim();
         if (pending && store.isValidTagKey(pending) && !editing.requiredTags.includes(pending)) editing.requiredTags.push(pending);
-        if (!name) return toast('Donnez un nom au profil.', { type: 'warn' });
+        if (!name) return toast(t('Donnez un nom au profil.'), { type: 'warn' });
         store.saveProfile({ id: editing.id, name, requiredTags: editing.requiredTags });
-        toast(editing.id ? 'Profil enregistré.' : 'Profil créé.');
+        toast(editing.id ? t('Profil enregistré.') : t('Profil créé.'));
         editing = null;
         draw();
     });
@@ -106,14 +107,14 @@ export function mount(root) {
         if (id) {
             const s = store.servers().find((x) => x.id === id);
             if (s) store.saveServer({ url: s.url, name: e.target.value.trim() || s.url });
-            toast('Serveur renommé.');
+            toast(t('Serveur renommé.'));
         }
         if (e.target.id === 'set-file' && e.target.files[0]) {
-            e.target.files[0].text().then((t) => {
-                const r = store.importSettings(JSON.parse(t));
-                toast(`${plural(r.addedServers, 'serveur')} et ${plural(r.addedProfiles, 'profil')} ajoutés (doublons ignorés).`);
+            e.target.files[0].text().then((txt) => {
+                const r = store.importSettings(JSON.parse(txt));
+                toast(t('{servers} et {profiles} ajoutés (doublons ignorés).', { servers: plural(r.addedServers, t('serveur'), t('serveurs')), profiles: plural(r.addedProfiles, t('profil'), t('profils')) }));
                 draw();
-            }).catch((err) => toast(`Fichier invalide : ${err.message}`, { type: 'err' }));
+            }).catch((err) => toast(t('Fichier invalide : {error}', { error: err.message }), { type: 'err' }));
         }
     });
 
@@ -127,13 +128,13 @@ export function mount(root) {
         },
         cancel: () => { editing = null; draw(); },
         rmtag: (el) => {
-            editing.requiredTags = editing.requiredTags.filter((t) => t !== el.dataset.t);
+            editing.requiredTags = editing.requiredTags.filter((tag) => tag !== el.dataset.t);
             editing.name = $('#p-name', root).value;
             draw();
         },
         delprof: async (el) => {
             const p = store.profiles().find((x) => x.id === el.dataset.id);
-            if (await confirmDialog({ title: 'Supprimer ce profil ?', message: html`Le profil <strong>${p.name}</strong> sera supprimé de ce navigateur.`, confirm: 'Supprimer', danger: true })) {
+            if (await confirmDialog({ title: t('Supprimer ce profil ?'), message: html`${t('Le profil')} <strong>${p.name}</strong> ${t('sera supprimé de ce navigateur.')}`, confirm: t('Supprimer'), danger: true })) {
                 store.removeProfile(p.id);
                 draw();
             }

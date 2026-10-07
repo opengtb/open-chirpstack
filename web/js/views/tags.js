@@ -7,6 +7,7 @@ import { $, html, render, icon, on, fmtNum, plural, bindDrop, confirmDialog, toa
 import { runJob } from '../jobs.js';
 import { readFile, readPasted, autoMap, tagCandidates, normHex } from '../files.js';
 import { isValidTagKey } from '../store.js';
+import { t } from '../i18n.js';
 
 export function mount(root, { navigate }) {
     const app = session.app;
@@ -37,8 +38,8 @@ export function mount(root, { navigate }) {
         return src.rows.map((r, i) => {
             const eui = normHex(r[euiCol]);
             const d = byEui.get(eui);
-            if (!eui) return { line: i + 2, eui, error: 'DevEUI vide' };
-            if (!d) return { line: i + 2, eui, error: 'absent de cette application' };
+            if (!eui) return { line: i + 2, eui, error: t('DevEUI vide') };
+            if (!d) return { line: i + 2, eui, error: t('absent de cette application') };
             const before = { ...(d.tags || {}) };
             const after = apply(before, r, keys);
             const changes = [];
@@ -59,49 +60,49 @@ export function mount(root, { navigate }) {
         render(root, html`<div class="page narrow" style="max-width:1000px">
             <div class="page-head"><div>
                 <div class="eyebrow">$ cs tags</div>
-                <h1>Tags par fichier — <em>${app.name}</em></h1>
-                <p class="lede">Un fichier avec une colonne DevEUI et une colonne par tag. Vous voyez exactement ce qui change avant d'envoyer.</p>
+                <h1>${t('Tags par fichier')} — <em>${app.name}</em></h1>
+                <p class="lede">${t('Un fichier avec une colonne DevEUI et une colonne par tag. Vous voyez exactement ce qui change avant d’envoyer.')}</p>
             </div></div>
             <div class="stack" style="gap:1rem">
             <div class="card">
-                <div class="card-head"><span class="tag-line">// 1 · fichier</span></div>
-                <div class="drop" id="t-drop" tabindex="0" role="button">${icon('upload')}<div>Glissez un fichier ou <strong>cliquez pour parcourir</strong></div><div class="xs dim">CSV ou Excel · ou collez des cellules avec Ctrl+V n'importe où sur cette page</div></div>
+                <div class="card-head"><span class="tag-line">// 1 · ${t('fichier')}</span></div>
+                <div class="drop" id="t-drop" tabindex="0" role="button" aria-label="${t('Choisir un fichier')}">${icon('upload')}<div>${t('Glissez un fichier ou')} <strong>${t('cliquez pour parcourir')}</strong></div><div class="xs dim">${t('CSV ou Excel · ou collez des cellules avec Ctrl+V n’importe où sur cette page')}</div></div>
                 <input type="file" id="t-file" accept=".csv,.txt,.tsv,.xlsx,.xls,.ods" hidden>
-                ${src ? html`<p class="hint mt">${icon('check')} <strong>${plural(src.rows.length, 'ligne')}</strong> · ${src.source}</p>` : ''}
+                ${src ? html`<p class="hint mt">${icon('check')} <strong>${plural(src.rows.length, t('ligne'))}</strong> · ${src.source}</p>` : ''}
             </div>
             ${src ? html`<div class="card">
-                <div class="card-head"><span class="tag-line">// 2 · réglages</span></div>
+                <div class="card-head"><span class="tag-line">// 2 · ${t('réglages')}</span></div>
                 <div class="grid grid-2">
-                    <div class="field"><label for="t-eui">Colonne DevEUI</label><select id="t-eui"><option value="">— choisir —</option>${src.headers.map((h) => html`<option value="${h}" ${euiCol === h ? 'selected' : ''}>${h}</option>`)}</select></div>
-                    <div class="field"><span class="label">Mode</span><div class="seg"><label><input type="radio" name="tm" value="merge" ${mode === 'merge' ? 'checked' : ''}> Fusionner</label><label><input type="radio" name="tm" value="replace" ${mode === 'replace' ? 'checked' : ''}> Remplacer tous les tags</label></div>
-                        <p class="hint">${mode === 'merge' ? 'Les tags absents du fichier sont conservés.' : html`<span class="warn">Les tags absents du fichier sont supprimés.</span>`}</p></div>
+                    <div class="field"><label for="t-eui">${t('Colonne DevEUI')}</label><select id="t-eui"><option value="">${t('— choisir —')}</option>${src.headers.map((h) => html`<option value="${h}" ${euiCol === h ? 'selected' : ''}>${h}</option>`)}</select></div>
+                    <div class="field"><span class="label">${t('Mode')}</span><div class="seg"><label><input type="radio" name="tm" value="merge" ${mode === 'merge' ? 'checked' : ''}> ${t('Fusionner')}</label><label><input type="radio" name="tm" value="replace" ${mode === 'replace' ? 'checked' : ''}> ${t('Remplacer tous les tags')}</label></div>
+                        <p class="hint">${mode === 'merge' ? t('Les tags absents du fichier sont conservés.') : html`<span class="warn">${t('Les tags absents du fichier sont supprimés.')}</span>`}</p></div>
                 </div>
-                <div class="mt"><span class="label">Colonnes envoyées comme tags</span>
+                <div class="mt"><span class="label">${t('Colonnes envoyées comme tags')}</span>
                     <div class="tags" style="gap:.4rem">${cols.map((c, i) => html`<label class="check badge" style="padding:.2rem .5rem"><input type="checkbox" data-col="${i}" ${c.checked ? 'checked' : ''}> ${c.key}</label>`)}</div>
-                    <p class="hint">Les colonnes issues d'un export (nom, profil, clés, dates, statut…) sont décochées d'office : une clé ne doit jamais devenir un tag.</p>
-                    ${badKeys.length ? html`<p class="err small">Nom de tag invalide : ${badKeys.map((c) => c.key).join(', ')}</p>` : ''}</div>
-                <div class="mt"><span class="label">Case vide dans le fichier</span><div class="seg"><label><input type="radio" name="te" value="keep" ${empty === 'keep' ? 'checked' : ''}> Ne rien changer</label><label><input type="radio" name="te" value="remove" ${empty === 'remove' ? 'checked' : ''}> Supprimer le tag</label></div></div>
+                    <p class="hint">${t('Les colonnes issues d’un export (nom, profil, clés, dates, statut…) sont décochées d’office : une clé ne doit jamais devenir un tag.')}</p>
+                    ${badKeys.length ? html`<p class="err small">${t('Nom de tag invalide : {keys}', { keys: badKeys.map((c) => c.key).join(', ') })}</p>` : ''}</div>
+                <div class="mt"><span class="label">${t('Case vide dans le fichier')}</span><div class="seg"><label><input type="radio" name="te" value="keep" ${empty === 'keep' ? 'checked' : ''}> ${t('Ne rien changer')}</label><label><input type="radio" name="te" value="remove" ${empty === 'remove' ? 'checked' : ''}> ${t('Supprimer le tag')}</label></div></div>
             </div>
             <div class="card">
-                <div class="card-head"><span class="tag-line">// 3 · aperçu</span><label class="check small end"><input type="checkbox" id="t-all" ${showAll ? 'checked' : ''}> afficher aussi les lignes sans changement</label></div>
-                ${!list ? html`<p class="hint">Chargement des devices de l'application…</p>` : !euiCol ? html`<p class="hint">Choisissez la colonne DevEUI.</p>` : html`
+                <div class="card-head"><span class="tag-line">// 3 · ${t('aperçu')}</span><label class="check small end"><input type="checkbox" id="t-all" ${showAll ? 'checked' : ''}> ${t('afficher aussi les lignes sans changement')}</label></div>
+                ${!list ? html`<p class="hint">${t('Chargement des devices de l’application…')}</p>` : !euiCol ? html`<p class="hint">${t('Choisissez la colonne DevEUI.')}</p>` : html`
                 <div class="kpis" style="grid-template-columns:repeat(3,1fr);margin-bottom:1rem">
-                    <div class="kpi is-ok"><div class="k-label">à modifier</div><div class="k-value">${fmtNum(changed.length)}</div></div>
-                    <div class="kpi"><div class="k-label">sans changement</div><div class="k-value">${fmtNum(rows.length - changed.length - errors.length)}</div></div>
-                    <div class="kpi ${errors.length ? 'is-warn' : ''}"><div class="k-label">introuvables</div><div class="k-value">${fmtNum(errors.length)}</div></div>
+                    <div class="kpi is-ok"><div class="k-label">${t('à modifier')}</div><div class="k-value">${fmtNum(changed.length)}</div></div>
+                    <div class="kpi"><div class="k-label">${t('sans changement')}</div><div class="k-value">${fmtNum(rows.length - changed.length - errors.length)}</div></div>
+                    <div class="kpi ${errors.length ? 'is-warn' : ''}"><div class="k-label">${t('introuvables')}</div><div class="k-value">${fmtNum(errors.length)}</div></div>
                 </div>
-                <div class="table-wrap short"><table class="tbl"><thead><tr><th>ligne</th><th>Device</th><th>Changements</th></tr></thead><tbody>
+                <div class="table-wrap short"><table class="tbl"><thead><tr><th>${t('ligne')}</th><th>${t('Device')}</th><th>${t('Changements')}</th></tr></thead><tbody>
                     ${shown.length ? shown.map((r) => html`<tr><td class="dim mono small">${r.line}</td>
                         <td class="name">${r.d ? r.d.name : html`<span class="mono">${r.eui || '—'}</span>`}${r.d ? html`<small class="mono">${r.eui}</small>` : ''}</td>
-                        <td class="small">${r.error ? html`<span class="warn">${r.error}</span>` : r.changes.length ? r.changes.map((c) => html`<div><span class="mono">${c.k}</span> : ${c.from !== undefined ? html`<span class="diff-old">${c.from || '(vide)'}</span> ` : ''}${c.to !== undefined ? html`→ <span class="diff-new">${c.to || '(vide)'}</span>` : html`<span class="err">supprimé</span>`}</div>`) : html`<span class="dim">aucun</span>`}</td></tr>`)
-                        : html`<tr><td colspan="3" class="empty">Aucun changement à appliquer.</td></tr>`}
+                        <td class="small">${r.error ? html`<span class="warn">${r.error}</span>` : r.changes.length ? r.changes.map((c) => html`<div><span class="mono">${c.k}</span> : ${c.from !== undefined ? html`<span class="diff-old">${c.from || t('(vide)')}</span> ` : ''}${c.to !== undefined ? html`→ <span class="diff-new">${c.to || t('(vide)')}</span>` : html`<span class="err">${t('supprimé')}</span>`}</div>`) : html`<span class="dim">${t('aucun')}</span>`}</td></tr>`)
+                        : html`<tr><td colspan="3" class="empty">${t('Aucun changement à appliquer.')}</td></tr>`}
                 </tbody></table></div>
-                <div class="row mt"><span class="grow"></span><button class="btn btn-primary btn-lg" data-act="run" ${changed.length && !badKeys.length ? '' : 'disabled'}>$ appliquer à ${plural(changed.length, 'device')} →</button></div>`}
+                <div class="row mt"><span class="grow"></span><button class="btn btn-primary btn-lg" data-act="run" ${changed.length && !badKeys.length ? '' : 'disabled'}>$ ${t('appliquer à {n}', { n: plural(changed.length, t('device')) })} →</button></div>`}
             </div>` : ''}
             </div></div>`);
         const zone = $('#t-drop', root);
         bindDrop(zone, $('#t-file', root), async (file) => {
-            try { setSource(await readFile(file)); } catch (e) { toast(`Lecture impossible : ${e.message}`, { type: 'err' }); }
+            try { setSource(await readFile(file)); } catch (e) { toast(t('Lecture impossible : {msg}', { msg: e.message }), { type: 'err' }); }
         });
     }
 
@@ -144,22 +145,22 @@ export function mount(root, { navigate }) {
             for (const r of all) if (r.changes?.length) last.set(r.eui, r);
             const changed = [...last.values()];
             if (mode === 'replace') {
-                const ok = await confirmDialog({ title: 'Remplacer tous les tags ?', message: html`Sur <strong>${plural(changed.length, 'device')}</strong>, les tags absents du fichier seront supprimés.`, confirm: 'Remplacer', danger: true });
+                const ok = await confirmDialog({ title: t('Remplacer tous les tags ?'), message: html`${t('Sur')} <strong>${plural(changed.length, t('device'))}</strong>, ${t('les tags absents du fichier seront supprimés.')}`, confirm: t('Remplacer'), danger: true });
                 if (!ok) return;
             }
             const patches = [];
             await runJob({
-                title: `Tags — ${plural(changed.length, 'device')}`,
-                verb: 'mis à jour',
+                title: t('Tags — {n}', { n: plural(changed.length, t('device')) }),
+                verb: t('mis à jour'),
                 items: changed,
                 label: (r) => r.d.name || r.eui,
                 run: async (r) => {
                     // Recalcul sur les tags lus à l'instant sur le serveur (pas sur la liste en cache).
                     const dev = await ops.updateDevice(r.eui, (dv) => ({ ...dv, tags: apply(dv.tags, r.row, keys) }));
                     patches.push({ devEui: r.eui, tags: dev.tags });
-                    return `${r.changes.length} changement(s)`;
+                    return t('{n} changement(s)', { n: r.changes.length });
                 },
-                after: () => [{ label: 'Voir les devices', onClick: () => navigate('devices') }],
+                after: () => [{ label: t('Voir les devices'), onClick: () => navigate('devices') }],
             });
             patchDevices(app.id, patches);
             draw();

@@ -2,7 +2,8 @@
 
 import * as api from '../api.js';
 import { session, devices, cached, appName } from '../state.js';
-import { $, $$, html, render, icon, on, fmtNum, plural, toast, openDialog, download, today, slug, debounce } from '../ui.js';
+import { $, $$, html, render, raw, icon, on, fmtNum, plural, toast, openDialog, download, today, slug, debounce } from '../ui.js';
+import { t, locale, csvNumber, cmd } from '../i18n.js';
 import { toCSV } from '../files.js';
 import { unitOf } from '../charts.js';
 import { timeChart, fmtNumber, fmtTime } from '../timechart.js';
@@ -26,7 +27,7 @@ const RADIO = {
 
 // Agrégation selon la durée, en cohérence avec la rétention par défaut de ChirpStack.
 const aggFor = (span) => (span <= 2.5 * 24 * HOUR ? 'HOUR' : span <= 62 * 24 * HOUR ? 'DAY' : 'MONTH');
-const AGG_LABEL = { HOUR: 'horaire', DAY: 'journalière', MONTH: 'mensuelle' };
+const AGG_LABEL = { HOUR: 'valeurs horaires', DAY: 'valeurs journalières', MONTH: 'valeurs mensuelles' };
 
 // Cache des réponses par device et par plage (évite de recharger en changeant de courbe).
 const dataCache = new Map();
@@ -49,6 +50,9 @@ export function mount(root) {
         return { from, to, agg: aggFor(to - from) };
     };
 
+    // Nom et unité affichés (les mesures radio sont traduites à l'affichage).
+    const sName = (s) => (RADIO[s.key] ? t(RADIO[s.key].name) : s.name);
+    const sUnit = (s) => (RADIO[s.key] ? t(RADIO[s.key].unit) : s.unit);
     const color = (s) => `var(--chart-${(s.color % COLORS) + 1})`;
     const resolvedColor = (s) => getComputedStyle(document.documentElement).getPropertyValue(`--chart-${(s.color % COLORS) + 1}`).trim();
     const freeColor = () => {
@@ -175,16 +179,16 @@ export function mount(root) {
         const r = range();
         const toLocal = (t) => { const d = new Date(t - new Date(t).getTimezoneOffset() * 60000); return d.toISOString().slice(0, 16); };
         render(el, html`
-            <div class="seg">${Object.entries(PRESETS).map(([k, p]) => html`<button class="${!custom && period === k ? 'on' : ''}" data-act="preset" data-v="${k}">${p.label}</button>`)}</div>
+            <div class="seg">${Object.entries(PRESETS).map(([k, p]) => html`<button class="${!custom && period === k ? 'on' : ''}" data-act="preset" data-v="${k}">${t(p.label)}</button>`)}</div>
             <div class="row small">
-                <input type="datetime-local" id="h-from" class="sm" value="${toLocal(r.from)}" aria-label="Début" style="width:auto">
+                <input type="datetime-local" id="h-from" class="sm" value="${toLocal(r.from)}" aria-label="${t('Début')}" style="width:auto">
                 <span class="dim">→</span>
-                <input type="datetime-local" id="h-to" class="sm" value="${toLocal(r.to)}" aria-label="Fin" style="width:auto">
+                <input type="datetime-local" id="h-to" class="sm" value="${toLocal(r.to)}" aria-label="${t('Fin')}" style="width:auto">
             </div>
-            ${zoomStack.length ? html`<button class="btn btn-sm btn-ghost" data-act="unzoom">${icon('undo')} dézoomer</button>` : ''}
+            ${zoomStack.length ? html`<button class="btn btn-sm btn-ghost" data-act="unzoom">${icon('undo')} ${t('dézoomer')}</button>` : ''}
             <span class="spacer"></span>
-            <span class="badge" title="Résolution des données renvoyées par ChirpStack">valeurs ${AGG_LABEL[r.agg]}s</span>
-            ${loading ? html`<span class="mono small dim">chargement…</span>` : ''}`);
+            <span class="badge" title="${t('Résolution des données renvoyées par ChirpStack')}">${t(AGG_LABEL[r.agg])}</span>
+            ${loading ? html`<span class="mono small dim">${t('chargement…')}</span>` : ''}`);
     }
 
     function legend() {
@@ -192,29 +196,29 @@ export function mount(root) {
             ${series.map((s) => {
                 const st = stats(points(s));
                 return html`<span class="h-chip ${s.hidden ? 'off' : ''}">
-                    <button class="h-chip-main" data-act="toggle" data-id="${s.id}" title="Afficher / masquer">
-                        <i style="background:${color(s)}${s.color >= COLORS ? ';opacity:.6' : ''}"></i><span class="dev">${s.device}</span><span class="dim">·</span><span>${s.name}</span>
-                        <strong>${st ? `${fmtNumber(s.kind === 'ABSOLUTE' ? st.sum : st.last[1])}${s.unit ? ' ' + s.unit : ''}` : '—'}</strong></button>
-                    <button class="h-chip-x" data-act="remove" data-id="${s.id}" aria-label="Retirer">${icon('x')}</button></span>`;
+                    <button class="h-chip-main" data-act="toggle" data-id="${s.id}" title="${t('Afficher / masquer')}">
+                        <i style="background:${color(s)}${s.color >= COLORS ? ';opacity:.6' : ''}"></i><span class="dev">${s.device}</span><span class="dim">·</span><span>${sName(s)}</span>
+                        <strong>${st ? `${fmtNumber(s.kind === 'ABSOLUTE' ? st.sum : st.last[1])}${sUnit(s) ? ' ' + sUnit(s) : ''}` : '—'}</strong></button>
+                    <button class="h-chip-x" data-act="remove" data-id="${s.id}" aria-label="${t('Retirer')}">${icon('x')}</button></span>`;
             })}
-            <button class="btn btn-sm" data-act="add">${icon('plus')} Ajouter des courbes</button>
-            ${series.length > 1 ? html`<button class="btn-link" data-act="clear">tout retirer</button>` : ''}
+            <button class="btn btn-sm" data-act="add">${icon('plus')} ${t('Ajouter des courbes')}</button>
+            ${series.length > 1 ? html`<button class="btn-link" data-act="clear">${t('tout retirer')}</button>` : ''}
         </div>`;
     }
 
     function statsTable() {
         const rows = series.map((s) => ({ s, st: stats(points(s)) }));
         return html`<div class="table-wrap"><table class="tbl">
-            <thead><tr><th>Courbe</th><th class="num">Dernière</th><th class="num">Min</th><th class="num">Moyenne</th><th class="num">Max</th><th class="num">Valeurs</th></tr></thead>
+            <thead><tr><th>${t('Courbe')}</th><th class="num">${t('Dernière')}</th><th class="num">${t('Min')}</th><th class="num">${t('Moyenne')}</th><th class="num">${t('Max')}</th><th class="num">${t('Valeurs')}</th></tr></thead>
             <tbody>${rows.map(({ s, st }) => html`<tr>
-                <td><span class="h-sw" style="background:${color(s)}"></span><strong>${s.device}</strong> <span class="dim">·</span> ${s.name}${s.unit ? html` <span class="dim">(${s.unit})</span>` : ''}</td>
+                <td><span class="h-sw" style="background:${color(s)}"></span><strong>${s.device}</strong> <span class="dim">·</span> ${sName(s)}${sUnit(s) ? html` <span class="dim">(${sUnit(s)})</span>` : ''}</td>
                 ${st ? html`
                     <td class="num">${fmtNumber(st.last[1])}<div class="xs dim">${fmtTime(st.last[0])}</div></td>
                     <td class="num">${fmtNumber(st.min[1])}<div class="xs dim">${fmtTime(st.min[0])}</div></td>
-                    <td class="num">${fmtNumber(s.kind === 'ABSOLUTE' ? st.sum / st.n : st.avg)}${s.kind === 'ABSOLUTE' ? html`<div class="xs dim">total ${fmtNumber(st.sum)}</div>` : ''}</td>
+                    <td class="num">${fmtNumber(s.kind === 'ABSOLUTE' ? st.sum / st.n : st.avg)}${s.kind === 'ABSOLUTE' ? html`<div class="xs dim">${t('total {n}', { n: fmtNumber(st.sum) })}</div>` : ''}</td>
                     <td class="num">${fmtNumber(st.max[1])}<div class="xs dim">${fmtTime(st.max[0])}</div></td>
                     <td class="num">${fmtNum(st.n)}</td>`
-                    : html`<td colspan="5" class="dim small">${data.get(s.eui)?.error || 'aucune valeur sur cette période'}</td>`}
+                    : html`<td colspan="5" class="dim small">${data.get(s.eui)?.error || t('aucune valeur sur cette période')}</td>`}
             </tr>`)}</tbody></table></div>`;
     }
 
@@ -258,7 +262,7 @@ export function mount(root) {
             chart.set({
                 from: r.from,
                 to: r.to,
-                series: g.series.map(({ s, axis }) => ({ label: `${s.device} · ${s.name}`, color: resolvedColor(s), dashed: s.color >= COLORS, unit: s.unit ?? '', kind: s.kind, axis, hidden: s.hidden, pts: points(s) })),
+                series: g.series.map(({ s, axis }) => ({ label: `${s.device} · ${sName(s)}`, color: resolvedColor(s), dashed: s.color >= COLORS, unit: sUnit(s) ?? '', kind: s.kind, axis, hidden: s.hidden, pts: points(s) })),
                 onCursor: sync,
                 onZoom: (a, b) => {
                     zoomStack.push({ period, custom });
@@ -276,7 +280,7 @@ export function mount(root) {
         drawToolbar();
         drawCharts();
         const st = $('#h-stats', root);
-        render(st, series.length ? html`<h2 class="section-title">Statistiques <span class="dim">— sur la période affichée</span></h2>${statsTable()}` : '');
+        render(st, series.length ? html`<h2 class="section-title">${t('Statistiques')} <span class="dim">${t('— sur la période affichée')}</span></h2>${statsTable()}` : '');
         const empty = $('#h-empty', root);
         empty.hidden = series.length > 0;
         $$('[data-act="csv"],[data-act="png"]', root).forEach((b) => { b.disabled = !series.length; });
@@ -286,25 +290,25 @@ export function mount(root) {
         render(root, html`<div class="page">
             <div class="page-head">
                 <div>
-                    <div class="eyebrow">$ cs historique</div>
-                    <h1>Historique</h1>
-                    <p class="lede">Superposez les mesures de vos devices : survolez pour lire les valeurs, glissez pour zoomer, double-cliquez pour revenir.</p>
+                    <div class="eyebrow">$ cs ${cmd('historique')}</div>
+                    <h1>${t('Historique')}</h1>
+                    <p class="lede">${t('Superposez les mesures de vos devices : survolez pour lire les valeurs, glissez pour zoomer, double-cliquez pour revenir.')}</p>
                 </div>
                 <div class="actions">
                     <button class="btn" data-act="csv">${icon('download')} CSV</button>
-                    <button class="btn" data-act="png">${icon('download')} Image PNG</button>
+                    <button class="btn" data-act="png">${icon('download')} ${t('Image PNG')}</button>
                 </div>
             </div>
             <div class="toolbar" id="h-toolbar"></div>
             <div id="h-legend"></div>
             <div id="h-empty" class="empty-state card" hidden>
-                <h3>Aucune courbe</h3>
-                <p>Choisissez un ou plusieurs devices puis leurs mesures (température, consigne, humidité…). Vous pouvez aussi ouvrir l'historique depuis la fiche d'un device.</p>
-                <button class="btn btn-primary" data-act="add">${icon('plus')} Ajouter des courbes</button>
+                <h3>${t('Aucune courbe')}</h3>
+                <p>${t('Choisissez un ou plusieurs devices puis leurs mesures (température, consigne, humidité…). Vous pouvez aussi ouvrir l’historique depuis la fiche d’un device.')}</p>
+                <button class="btn btn-primary" data-act="add">${icon('plus')} ${t('Ajouter des courbes')}</button>
             </div>
             <div id="h-charts" class="stack" style="gap:.75rem"></div>
             <div id="h-stats"></div>
-            <p class="hint mt">ChirpStack ne conserve que des valeurs agrégées des mesures déclarées dans les Device Profiles : par défaut 2 jours en horaire, 1 mois en journalier, 1 an en mensuel.</p>
+            <p class="hint mt">${t('ChirpStack ne conserve que des valeurs agrégées des mesures déclarées dans les Device Profiles : par défaut 2 jours en horaire, 1 mois en journalier, 1 an en mensuel.')}</p>
         </div>`);
     }
 
@@ -329,7 +333,7 @@ export function mount(root) {
         let q = '';
         let measureInfo = null; // [{ key, name, unit, kind, count }]
 
-        const d = openDialog({ title: 'Ajouter des courbes', wide: true, body: html`<div id="ad-body"></div>`, foot: html`<div id="ad-foot" class="row grow"></div>` });
+        const d = openDialog({ title: t('Ajouter des courbes'), wide: true, body: html`<div id="ad-body"></div>`, foot: html`<div id="ad-foot" class="row grow"></div>` });
         const body = $('#ad-body', d.el);
         const foot = $('#ad-foot', d.el);
 
@@ -343,15 +347,15 @@ export function mount(root) {
             render(body, html`
                 <div class="row" style="margin-bottom:.75rem">
                     <select id="ad-app" class="sm" style="width:auto;max-width:280px">${session.apps.map((a) => html`<option value="${a.id}" ${a.id === appId ? 'selected' : ''}>${a.name}</option>`)}</select>
-                    <div class="search-input grow">${icon('search')}<input type="search" id="ad-q" value="${q}" placeholder="Nom, DevEUI, tag (ex. R+1, Salle 104)…" autofocus></div>
+                    <div class="search-input grow">${icon('search')}<input type="search" id="ad-q" value="${q}" placeholder="${t('Nom, DevEUI, tag (ex. R+1, Salle 104)…')}" autofocus></div>
                 </div>
-                <div class="row small" style="margin-bottom:.5rem"><button class="btn-link" data-ad="all">tout cocher (${fmtNum(Math.min(rows.length, MAX_SERIES))})</button><span class="dim">·</span><button class="btn-link" data-ad="none">tout décocher</button><span class="spacer"></span><span class="dim">${fmtNum(chosen.size)} sélectionné(s)</span></div>
+                <div class="row small" style="margin-bottom:.5rem"><button class="btn-link" data-ad="all">${t('tout cocher ({n})', { n: fmtNum(Math.min(rows.length, MAX_SERIES)) })}</button><span class="dim">·</span><button class="btn-link" data-ad="none">${t('tout décocher')}</button><span class="spacer"></span><span class="dim">${t('{n} sélectionné(s)', { n: fmtNum(chosen.size) })}</span></div>
                 <div class="table-wrap short"><table class="tbl"><tbody>
                     ${rows.slice(0, 200).map((x) => html`<tr class="clickable" data-pick="${x.devEui}"><td class="w-check"><input type="checkbox" ${chosen.has(x.devEui) ? 'checked' : ''} tabindex="-1"></td>
                         <td class="name">${x.name}<small>${x.deviceProfileName || ''}</small></td><td class="eui">${x.devEui}</td></tr>`)}
-                    ${!rows.length ? html`<tr><td class="empty">${list.length ? 'Aucun device ne correspond.' : 'Chargement…'}</td></tr>` : ''}
+                    ${!rows.length ? html`<tr><td class="empty">${list.length ? t('Aucun device ne correspond.') : t('Chargement…')}</td></tr>` : ''}
                 </tbody></table></div>`);
-            render(foot, html`<span class="spacer"></span><button class="btn" data-close>Annuler</button><button class="btn btn-primary" data-ad="next" ${chosen.size ? '' : 'disabled'}>Choisir les mesures →</button>`);
+            render(foot, html`<span class="spacer"></span><button class="btn" data-close>${t('Annuler')}</button><button class="btn btn-primary" data-ad="next" ${chosen.size ? '' : 'disabled'}>${t('Choisir les mesures →')}</button>`);
             const input = $('#ad-q', body);
             input.focus();
             input.setSelectionRange(input.value.length, input.value.length);
@@ -365,8 +369,8 @@ export function mount(root) {
         }
 
         async function drawStep2() {
-            render(body, html`<p class="hint">Lecture des mesures de ${plural(chosen.size, 'device')}…</p><div class="progress indeterminate"><i></i></div>`);
-            render(foot, html`<span class="spacer"></span><button class="btn" data-close>Annuler</button>`);
+            render(body, html`<p class="hint">${t('Lecture des mesures de {devices}…', { devices: plural(chosen.size, 'device') })}</p><div class="progress indeterminate"><i></i></div>`);
+            render(foot, html`<span class="spacer"></span><button class="btn" data-close>${t('Annuler')}</button>`);
             const r = range();
             const per = await api.pool([...chosen.keys()], 4, async (eui) => [eui, await fetchDevice(eui, r).catch(() => null)]);
             const info = new Map();
@@ -381,21 +385,21 @@ export function mount(root) {
             const already = new Set(series.map((s) => s.key));
             const preferred = measureInfo.find((m) => /temp/i.test(m.key))?.key || measureInfo[0]?.key;
             render(body, html`
-                <p class="soft small" style="margin-bottom:.75rem">${plural(chosen.size, 'device')} : ${[...chosen.values()].slice(0, 6).join(', ')}${chosen.size > 6 ? '…' : ''}
-                    ${preselected.length ? '' : html` · <button class="btn-link" data-ad="back">modifier</button>`}</p>
-                ${measureInfo.length ? html`<span class="label">Mesures enregistrées</span>
+                <p class="soft small" style="margin-bottom:.75rem">${t('{devices} : {names}', { devices: plural(chosen.size, 'device'), names: [...chosen.values()].slice(0, 6).join(', ') + (chosen.size > 6 ? '…' : '') })}
+                    ${preselected.length ? '' : html` · <button class="btn-link" data-ad="back">${t('modifier')}</button>`}</p>
+                ${measureInfo.length ? html`<span class="label">${t('Mesures enregistrées')}</span>
                     <div class="tags" style="gap:.4rem;margin-bottom:1rem">${measureInfo.map((m) => html`<label class="check badge" style="padding:.3rem .55rem"><input type="checkbox" data-key="${m.key}" ${already.has(m.key) || (!already.size && m.key === preferred) ? 'checked' : ''}> ${m.name}${m.unit ? html` <span class="dim">(${m.unit})</span>` : ''}${chosen.size > 1 ? html` <span class="dim">${m.count}/${chosen.size}</span>` : ''}</label>`)}</div>`
-                    : html`<div class="callout" style="margin-bottom:1rem">${icon('alert')}<div>Aucune mesure historisée pour ${chosen.size > 1 ? 'ces devices' : 'ce device'} sur la période. ChirpStack n'enregistre que les mesures déclarées dans le Device Profile (onglet <em>Measurements</em>).</div></div>`}
-                <span class="label">Liaison radio</span>
-                <div class="tags" style="gap:.4rem">${Object.entries(RADIO).map(([k, m]) => html`<label class="check badge" style="padding:.3rem .55rem"><input type="checkbox" data-key="${k}" ${!measureInfo.length && k === '@rssi' ? 'checked' : ''}> ${m.name} <span class="dim">(${m.unit})</span></label>`)}</div>
+                    : html`<div class="callout" style="margin-bottom:1rem">${icon('alert')}<div>${chosen.size > 1 ? t('Aucune mesure historisée pour ces devices sur la période.') : t('Aucune mesure historisée pour ce device sur la période.')} ${raw(t('ChirpStack n’enregistre que les mesures déclarées dans le Device Profile (onglet {tab}).', { tab: '<em>Measurements</em>' }))}</div></div>`}
+                <span class="label">${t('Liaison radio')}</span>
+                <div class="tags" style="gap:.4rem">${Object.entries(RADIO).map(([k, m]) => html`<label class="check badge" style="padding:.3rem .55rem"><input type="checkbox" data-key="${k}" ${!measureInfo.length && k === '@rssi' ? 'checked' : ''}> ${t(m.name)} <span class="dim">(${t(m.unit)})</span></label>`)}</div>
                 <p class="hint mt" id="ad-count"></p>`);
             const count = () => {
                 const n = $$('input[data-key]:checked', body).length * chosen.size;
                 const room = MAX_SERIES - series.length;
-                $('#ad-count', body).textContent = `${plural(n, 'courbe')}${n > room ? ` — seules les ${room} premières seront ajoutées (${MAX_SERIES} au maximum)` : ''}`;
+                $('#ad-count', body).textContent = plural(n, t('courbe'), t('courbes')) + (n > room ? t(' — seules les {room} premières seront ajoutées ({max} au maximum)', { room, max: MAX_SERIES }) : '');
                 $('[data-ad="add"]', foot).disabled = !n;
             };
-            render(foot, html`<span class="spacer"></span><button class="btn" data-close>Annuler</button><button class="btn btn-primary" data-ad="add">Ajouter</button>`);
+            render(foot, html`<span class="spacer"></span><button class="btn" data-close>${t('Annuler')}</button><button class="btn btn-primary" data-ad="add">${t('Ajouter')}</button>`);
             body.addEventListener('change', count);
             count();
         }
@@ -429,7 +433,7 @@ export function mount(root) {
                     }
                 }
                 d.close();
-                if (skipped && series.length >= MAX_SERIES) toast(`${MAX_SERIES} courbes au maximum : ${skipped} non ajoutée(s).`, { type: 'warn' });
+                if (skipped && series.length >= MAX_SERIES) toast(t('{max} courbes au maximum : {n} non ajoutée(s).', { max: MAX_SERIES, n: skipped }), { type: 'warn' });
                 if (added) reload();
             }
         });
@@ -442,8 +446,8 @@ export function mount(root) {
     function exportCsv() {
         const cols = series.map((s) => ({ s, map: new Map(points(s).map(([t, v]) => [t, v])) }));
         const times = [...new Set(cols.flatMap((c) => [...c.map.keys()]))].sort((a, b) => a - b);
-        const head = ['horodatage', ...series.map((s) => `${s.device} · ${s.name}${s.unit ? ` (${s.unit})` : ''}`)];
-        const rows = times.map((t) => [new Date(t).toLocaleString('fr-FR'), ...cols.map((c) => { const v = c.map.get(t); return v === null || v === undefined ? '' : String(v).replace('.', ','); })]);
+        const head = [t('horodatage'), ...series.map((s) => `${s.device} · ${sName(s)}${sUnit(s) ? ` (${sUnit(s)})` : ''}`)];
+        const rows = times.map((ts) => [new Date(ts).toLocaleString(locale()), ...cols.map((c) => csvNumber(c.map.get(ts)))]);
         download(toCSV(head, rows), `historique-${today()}.csv`, 'text/csv;charset=utf-8');
     }
 
@@ -466,17 +470,17 @@ export function mount(root) {
         ctx.fillRect(0, 0, width, total);
         ctx.fillStyle = v('--fg');
         ctx.font = `600 17px ${v('--font-sans')}`;
-        ctx.fillText(`Historique — ${session.tenant?.name || ''}`, 16, 28);
+        ctx.fillText(t('Historique — {tenant}', { tenant: session.tenant?.name || '' }), 16, 28);
         ctx.font = `12px ${v('--font-mono')}`;
         ctx.fillStyle = v('--text-dim');
-        ctx.fillText(`${fmtTime(r.from, true)} → ${fmtTime(r.to, true)} · valeurs ${AGG_LABEL[r.agg]}s`, 16, 48);
+        ctx.fillText(`${fmtTime(r.from, true)} → ${fmtTime(r.to, true)} · ${t(AGG_LABEL[r.agg])}`, 16, 48);
         legendRows.forEach((s, i) => {
             const y = 82 + i * 20;
             ctx.fillStyle = resolvedColor(s);
             ctx.fillRect(16, y - 9, 12, 4);
             ctx.fillStyle = v('--fg');
             ctx.font = `13px ${v('--font-sans')}`;
-            ctx.fillText(`${s.device} · ${s.name}${s.unit ? ` (${s.unit})` : ''}`, 36, y - 3);
+            ctx.fillText(`${s.device} · ${sName(s)}${sUnit(s) ? ` (${sUnit(s)})` : ''}`, 36, y - 3);
         });
         let y = headH;
         for (const c of charts) {
@@ -513,13 +517,13 @@ export function mount(root) {
         },
         clear: () => { series = []; writeUrl(); draw(); },
         csv: () => exportCsv(),
-        png: () => exportPng().catch((e) => toast(`Image impossible : ${e.message}`, { type: 'err' })),
+        png: () => exportPng().catch((e) => toast(t('Image impossible : {error}', { error: e.message }), { type: 'err' })),
     });
     root.addEventListener('change', (e) => {
         if (e.target.id === 'h-from' || e.target.id === 'h-to') {
             const from = Date.parse($('#h-from', root).value);
             const to = Date.parse($('#h-to', root).value);
-            if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) return toast('Plage de dates invalide.', { type: 'warn' });
+            if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) return toast(t('Plage de dates invalide.'), { type: 'warn' });
             zoomStack.push({ period, custom });
             custom = { from, to };
             reload();

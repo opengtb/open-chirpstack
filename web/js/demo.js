@@ -1,6 +1,8 @@
 // Faux backend ChirpStack v4 en mémoire, pour le mode démo (aucun serveur requis).
 // Imite les réponses JSON de grpc-gateway (chirpstack-rest-api) : camelCase,
 // timestamps ISO 8601, entiers 64 bits sérialisés en chaînes.
+// options.lang ('fr' par défaut, ou 'en') : langue des données générées. Les tirages aléatoires sont
+// identiques dans les deux langues (mêmes DevEUI, mêmes clés, mêmes métriques pour une même graine).
 
 // ---------------------------------------------------------------------------
 // Aléatoire déterministe
@@ -135,6 +137,34 @@ function byName(a, b) {
 }
 
 // ---------------------------------------------------------------------------
+// Vocabulaire anglais (données générées en français puis converties mot à mot)
+// ---------------------------------------------------------------------------
+
+// Jetons des noms de devices : correspondance injective, donc l'unicité des noms est conservée.
+const NAME_EN = {
+  'R+0': 'L0', 'R+1': 'L1', 'R+2': 'L2', 'R+3': 'L3', 'R+4': 'L4',
+  Salle: 'Room', Bureau: 'Office', Accueil: 'Lobby',
+  CPT: 'MTR', EAU: 'WATER', GAZ: 'GAS', CAL: 'HEAT',
+  TD: 'DB', TGBT: 'MSB', SS: 'B1', SAN: 'WC', CHF: 'BLR', CUIS: 'KIT', SST: 'SUB',
+  CTA: 'AHU', CTA1: 'AHU1', CTA2: 'AHU2', ECS: 'DHW', DEP: 'SUP', RET: 'RTN',
+  LT: 'PLANT', TOIT: 'ROOF', PK: 'CP', N: 'P',
+};
+const enTokens = (s) => s.split('-').map((x) => NAME_EN[x] ?? x).join('-');
+
+// Niveaux : R+1 → L1, R-1 → B1, N-2 → P-2 (parking), Toiture → Roof.
+function floorEn(f) {
+  if (/^R\+\d$/.test(f)) return `L${f.slice(2)}`;
+  if (/^R-\d$/.test(f)) return `B${f.slice(2)}`;
+  if (/^N-\d$/.test(f)) return `P-${f.slice(2)}`;
+  return { Toiture: 'Roof', SS: 'B1' }[f] ?? f;
+}
+
+const ZONE_EN = { Nord: 'North', Sud: 'South', Est: 'East', Ouest: 'West', Centre: 'Centre', 'Local technique': 'Plant room' };
+const LOT_EN = { CVC: 'HVAC', CFO: 'Electrical', PLB: 'Plumbing', Essais: 'Testing' };
+const FLUID_EN = { electricite: 'electricity', eau: 'water', gaz: 'gas', calories: 'heat' };
+const ROOM_EN = { Salle: 'room', Bureau: 'office', 'Open-space': 'open-space', Accueil: 'lobby' };
+
+// ---------------------------------------------------------------------------
 // Catalogue des données de démo
 // ---------------------------------------------------------------------------
 
@@ -156,8 +186,10 @@ const APPS = [
     key: 'A',
     name: 'Bâtiment A — Confort',
     description: 'Sondes de confort (CO2, température, hygrométrie) des bureaux et salles du bâtiment A',
+    nameEn: 'Building A — Comfort',
+    descriptionEn: 'Comfort sensors (CO2, temperature, humidity) in the offices and rooms of building A',
     count: 60,
-    make(r) {
+    make(r, i, en) {
       const p = r.pick(['elsys', 'elsys', 'elsys', 'milesight', 'milesight', 'milesight', 'nke', 'adeunis']);
       const floor = r.pick(FLOORS);
       const lvl = floor.slice(2);
@@ -165,11 +197,22 @@ const APPS = [
       const num = `${lvl}${String(r.int(1, 30)).padStart(2, '0')}`;
       const kind = p === 'elsys' ? 'CO2' : p === 'milesight' ? 'TH' : 'TEMP';
       const label = { CO2: 'Sonde CO2/T/HR', TH: 'Sonde T/HR', TEMP: 'Sonde de température' }[kind];
+      const name = `${kind}-${floor}-${room}-${num}`;
+      const zone = r.pick(ZONES);
+      if (en) {
+        const labelEn = { CO2: 'CO2/T/RH sensor', TH: 'T/RH sensor', TEMP: 'Temperature sensor' }[kind];
+        return {
+          profile: p,
+          name: enTokens(name),
+          description: `${labelEn} — ${ROOM_EN[room]} ${num}`,
+          tags: { building: 'A', floor: floorEn(floor), zone: ZONE_EN[zone], lot: 'HVAC', usage: 'comfort' },
+        };
+      }
       return {
         profile: p,
-        name: `${kind}-${floor}-${room}-${num}`,
+        name,
         description: `${label} — ${room.toLowerCase()} ${num}`,
-        tags: { batiment: 'A', etage: floor, zone: r.pick(ZONES), lot: 'CVC', usage: 'confort' },
+        tags: { batiment: 'A', etage: floor, zone, lot: 'CVC', usage: 'confort' },
       };
     },
   },
@@ -177,8 +220,10 @@ const APPS = [
     key: 'B',
     name: 'Bâtiment B — Comptage',
     description: 'Comptage énergétique et fluides du bâtiment B (décret tertiaire)',
+    nameEn: 'Building B — Metering',
+    descriptionEn: 'Energy and utility metering for building B',
     count: 140,
-    make(r) {
+    make(r, i, en) {
       const x = r.next();
       if (x < 0.72) {
         const fluide = r.pick(['ELEC', 'ELEC', 'ELEC', 'EAU', 'EAU', 'GAZ', 'CAL']);
@@ -191,17 +236,35 @@ const APPS = [
         const lot = { ELEC: 'CFO', EAU: 'PLB', GAZ: 'CVC', CAL: 'CVC' }[fluide];
         const fl = { ELEC: 'electricite', EAU: 'eau', GAZ: 'gaz', CAL: 'calories' }[fluide];
         const n = String(r.int(1, 40)).padStart(2, '0');
+        const etage = loc.includes('R+') ? loc.slice(loc.indexOf('R+')) : loc === 'SS' || loc === 'TD-SS' ? 'R-1' : 'R+0';
+        if (en) {
+          const fe = FLUID_EN[fl];
+          return {
+            profile: 'watteco',
+            name: enTokens(`CPT-${fluide}-${loc}-${n}`),
+            description: `${fe.charAt(0).toUpperCase() + fe.slice(1)} meter (pulse output) — ${enTokens(loc)}`,
+            tags: { building: 'B', floor: floorEn(etage), lot: LOT_EN[lot], fluid: fe, usage: 'metering' },
+          };
+        }
         return {
           profile: 'watteco',
           name: `CPT-${fluide}-${loc}-${n}`,
           description: `Compteur ${fl} (sortie impulsion) — ${loc}`,
-          tags: { batiment: 'B', etage: loc.includes('R+') ? loc.slice(loc.indexOf('R+')) : loc === 'SS' || loc === 'TD-SS' ? 'R-1' : 'R+0', lot, fluide: fl, usage: 'comptage' },
+          tags: { batiment: 'B', etage, lot, fluide: fl, usage: 'comptage' },
         };
       }
       if (x < 0.9) {
         const circuit = r.pick(['DEP', 'RET']);
         const loc = r.pick(['CHF', 'SST', 'CTA1', 'CTA2', 'ECS']);
         const n = String(r.int(1, 20)).padStart(2, '0');
+        if (en) {
+          return {
+            profile: 'adeunis',
+            name: enTokens(`T-${circuit}-${loc}-${n}`),
+            description: `${circuit === 'DEP' ? 'Supply' : 'Return'} temperature ${enTokens(loc)}`,
+            tags: { building: 'B', floor: 'B1', lot: 'HVAC', zone: 'Plant room', usage: 'metering' },
+          };
+        }
         return {
           profile: 'adeunis',
           name: `T-${circuit}-${loc}-${n}`,
@@ -210,11 +273,21 @@ const APPS = [
         };
       }
       const n = String(r.int(1, 30)).padStart(2, '0');
+      const name = `TH-LT-${r.pick(['SS', 'R+0', 'TOIT'])}-${n}`;
+      const etage = r.pick(['R-1', 'R+0', 'Toiture']);
+      if (en) {
+        return {
+          profile: 'milesight',
+          name: enTokens(name),
+          description: 'Plant room ambient conditions',
+          tags: { building: 'B', floor: floorEn(etage), lot: 'HVAC', zone: 'Plant room', usage: 'monitoring' },
+        };
+      }
       return {
         profile: 'milesight',
-        name: `TH-LT-${r.pick(['SS', 'R+0', 'TOIT'])}-${n}`,
+        name,
         description: 'Ambiance local technique',
-        tags: { batiment: 'B', etage: r.pick(['R-1', 'R+0', 'Toiture']), lot: 'CVC', zone: 'Local technique', usage: 'surveillance' },
+        tags: { batiment: 'B', etage, lot: 'CVC', zone: 'Local technique', usage: 'surveillance' },
       };
     },
   },
@@ -222,11 +295,22 @@ const APPS = [
     key: 'P',
     name: "Parking — Qualité d'air",
     description: "Surveillance de la qualité d'air et de l'ambiance du parking souterrain",
+    nameEn: 'Car park — Air quality',
+    descriptionEn: 'Air quality and ambient monitoring of the underground car park',
     count: 35,
-    make(r) {
+    make(r, i, en) {
       const lvl = r.pick(['N-1', 'N-2', 'N-3']);
       const z = `Z${String(r.int(1, 12)).padStart(2, '0')}`;
       const co2 = r.chance(0.45);
+      if (en) {
+        const lv = floorEn(lvl);
+        return {
+          profile: co2 ? 'elsys' : 'dragino',
+          name: enTokens(`${co2 ? 'AIR' : 'TH'}-PK-${lvl}-${z}`),
+          description: co2 ? `Car park air quality ${lv}, zone ${z}` : `Car park temperature/humidity ${lv}, zone ${z}`,
+          tags: { building: 'Car park', floor: lv, zone: z, lot: 'HVAC', usage: 'air_quality' },
+        };
+      }
       return {
         profile: co2 ? 'elsys' : 'dragino',
         name: `${co2 ? 'AIR' : 'TH'}-PK-${lvl}-${z}`,
@@ -239,26 +323,33 @@ const APPS = [
     key: 'T',
     name: 'Test terrain',
     description: 'Capteurs en essai de portée et de recette avant déploiement',
+    nameEn: 'Field test',
+    descriptionEn: 'Sensors under range and acceptance testing before deployment',
     count: 12,
-    make(r, i) {
+    make(r, i, en) {
       const p = PROFILES[i % PROFILES.length].key;
       const short = { elsys: 'ELSYS', adeunis: 'ADEUNIS', milesight: 'EM300', watteco: 'FLASHO', dragino: 'LHT65N', nke: 'NKE' }[p];
+      const name = `TEST-${short}-${String(Math.floor(i / PROFILES.length) + 1).padStart(2, '0')}`;
+      // Listes de même longueur : même tirage dans les deux langues.
+      const description = r.pick(en
+        ? ['Range test', 'Pre-installation acceptance', 'Returned for analysis (RMA)', 'Test bench']
+        : ['Essai de portée', 'Recette avant pose', 'Retour SAV à analyser', 'Banc de test']);
       return {
         profile: p,
-        name: `TEST-${short}-${String(Math.floor(i / PROFILES.length) + 1).padStart(2, '0')}`,
-        description: r.pick(['Essai de portée', 'Recette avant pose', 'Retour SAV à analyser', 'Banc de test']),
-        tags: { batiment: 'Labo', lot: 'Essais', usage: 'test' },
+        name,
+        description,
+        tags: en ? { building: 'Lab', lot: 'Testing', usage: 'test' } : { batiment: 'Labo', lot: 'Essais', usage: 'test' },
       };
     },
   },
 ];
 
 const GATEWAYS = [
-  { name: 'GW-BAT-A-TOITURE', description: 'Kerlink iStation — toiture bâtiment A', prefix: '7276ff002e06', state: 'ONLINE', loc: [48.8566, 2.3522, 42] },
-  { name: 'GW-BAT-B-R+3', description: 'Milesight UG65 — local technique R+3 bâtiment B', prefix: '24e124fffef4', state: 'ONLINE', loc: [48.8571, 2.3531, 18] },
-  { name: 'GW-PARKING-N-1', description: 'Milesight UG65 — parking niveau -1', prefix: '24e124fffef5', state: 'ONLINE', loc: [48.8562, 2.3527, -3] },
-  { name: 'GW-BAT-B-SS', description: 'Kerlink Wirnet iFemtoCell — sous-sol bâtiment B (alimentation coupée ?)', prefix: '7276ff00390a', state: 'OFFLINE', loc: [48.8570, 2.3533, -4] },
-  { name: 'GW-SPARE-01', description: 'Passerelle de rechange, pas encore installée', prefix: '0016c001ff1e', state: 'NEVER_SEEN', loc: [0, 0, 0] },
+  { name: 'GW-BAT-A-TOITURE', nameEn: 'GW-BLDG-A-ROOF', description: 'Kerlink iStation — toiture bâtiment A', descriptionEn: 'Kerlink iStation — building A roof', prefix: '7276ff002e06', state: 'ONLINE', loc: [48.8566, 2.3522, 42] },
+  { name: 'GW-BAT-B-R+3', nameEn: 'GW-BLDG-B-L3', description: 'Milesight UG65 — local technique R+3 bâtiment B', descriptionEn: 'Milesight UG65 — level 3 plant room, building B', prefix: '24e124fffef4', state: 'ONLINE', loc: [48.8571, 2.3531, 18] },
+  { name: 'GW-PARKING-N-1', nameEn: 'GW-CARPARK-P-1', description: 'Milesight UG65 — parking niveau -1', descriptionEn: 'Milesight UG65 — car park level -1', prefix: '24e124fffef5', state: 'ONLINE', loc: [48.8562, 2.3527, -3] },
+  { name: 'GW-BAT-B-SS', nameEn: 'GW-BLDG-B-B1', description: 'Kerlink Wirnet iFemtoCell — sous-sol bâtiment B (alimentation coupée ?)', descriptionEn: 'Kerlink Wirnet iFemtoCell — building B basement (power cut?)', prefix: '7276ff00390a', state: 'OFFLINE', loc: [48.8570, 2.3533, -4] },
+  { name: 'GW-SPARE-01', nameEn: 'GW-SPARE-01', description: 'Passerelle de rechange, pas encore installée', descriptionEn: 'Spare gateway, not installed yet', prefix: '0016c001ff1e', state: 'NEVER_SEEN', loc: [0, 0, 0] },
 ];
 
 const FREQS = [868100000, 868300000, 868500000, 867100000, 867300000, 867500000, 867700000, 867900000];
@@ -267,13 +358,14 @@ const FREQS = [868100000, 868300000, 868500000, 867100000, 867300000, 867500000,
 // Génération de l'état initial
 // ---------------------------------------------------------------------------
 
-function buildState(seed, now) {
+function buildState(seed, now, lang = 'fr') {
   const r = makeRand(seed);
+  const en = lang === 'en';
 
   const tenant = {
     id: r.uuid(),
-    name: 'Démo OpenGTB',
-    description: 'Tenant de démonstration (données fictives)',
+    name: en ? 'OpenGTB Demo' : 'Démo OpenGTB',
+    description: en ? 'Demo tenant (fictitious data)' : 'Tenant de démonstration (données fictives)',
     createdAt: now - 420 * DAY,
     updatedAt: now - 30 * DAY,
   };
@@ -284,8 +376,8 @@ function buildState(seed, now) {
     applications.set(r.uuid(), {
       key: a.key,
       tenantId: tenant.id,
-      name: a.name,
-      description: a.description,
+      name: en ? a.nameEn : a.name,
+      description: en ? a.descriptionEn : a.description,
       createdAt: created,
       updatedAt: created + r.int(1, 100) * DAY,
     });
@@ -316,8 +408,8 @@ function buildState(seed, now) {
     gateways.set(gatewayId, {
       tenantId: tenant.id,
       gatewayId,
-      name: g.name,
-      description: g.description,
+      name: en ? g.nameEn : g.name,
+      description: en ? g.descriptionEn : g.description,
       location: { latitude: g.loc[0], longitude: g.loc[1], altitude: g.loc[2], source: 'UNKNOWN', accuracy: 0 },
       properties: {},
       createdAt: created,
@@ -339,7 +431,7 @@ function buildState(seed, now) {
       let d;
       let guard = 0;
       do {
-        d = def.make(r, i);
+        d = def.make(r, i, en);
       } while (names.has(d.name) && ++guard < 50);
       if (names.has(d.name)) d.name += `-${i}`;
       names.add(d.name);
@@ -532,6 +624,13 @@ const MEASUREMENTS = {
   dragino: [['temperature', 'Température', 'GAUGE'], ['humidity', 'Humidité', 'GAUGE'], ['battery_v', 'Tension pile', 'GAUGE']],
   nke: [['temperature', 'Température', 'GAUGE']],
 };
+const MEASUREMENT_EN = {
+  'Température': 'Temperature',
+  'Humidité': 'Humidity',
+  'Index énergie (Wh)': 'Energy index (Wh)',
+  'Impulsions': 'Pulses',
+  'Tension pile': 'Battery voltage',
+};
 
 function measureValue(key, d, t, r, aggHours) {
   const hour = new Date(t).getUTCHours() + 2; // heure locale approximative
@@ -549,7 +648,7 @@ function measureValue(key, d, t, r, aggHours) {
   }
 }
 
-function deviceMetrics(d, startMs, endMs, agg, now) {
+function deviceMetrics(d, startMs, endMs, agg, now, en = false) {
   const defs = MEASUREMENTS[d.profile] || [];
   const timestamps = [];
   const series = defs.map(() => []);
@@ -573,9 +672,10 @@ function deviceMetrics(d, startMs, endMs, agg, now) {
   }
   const metrics = {};
   defs.forEach(([key, name, kind], i) => {
-    metrics[key] = { name, timestamps, datasets: [{ label: key, data: series[i] }], kind };
+    metrics[key] = { name: en ? MEASUREMENT_EN[name] ?? name : name, timestamps, datasets: [{ label: key, data: series[i] }], kind };
   });
-  const states = d.profile === 'dragino' ? { alarm: { name: 'Alarme', value: 'non' } } : {};
+  const alarm = en ? { name: 'Alarm', value: 'no' } : { name: 'Alarme', value: 'non' };
+  const states = d.profile === 'dragino' ? { alarm } : {};
   return { metrics, states };
 }
 
@@ -672,7 +772,8 @@ function linkMetrics(d, startMs, endMs, agg, now) {
 
 export function createDemoBackend(options = {}) {
   const seed = Number.isFinite(options.seed) ? options.seed : 42;
-  const state = buildState(seed, Date.now());
+  const en = options.lang === 'en';
+  const state = buildState(seed, Date.now(), en ? 'en' : 'fr');
   const { tenant, applications, profiles, gateways, devices, keys } = state;
 
   // Latence simulée : générateur distinct pour ne pas perturber les données.
@@ -869,7 +970,7 @@ export function createDemoBackend(options = {}) {
       const agg = (q.get('aggregation') ?? 'HOUR').toUpperCase();
       if (!['HOUR', 'DAY', 'MONTH'].includes(agg)) throw invalid(`invalid aggregation: ${agg}`);
       const key = profiles.get(d.deviceProfileId)?.key;
-      return deviceMetrics({ ...d, profile: key }, start, end, agg, Date.now());
+      return deviceMetrics({ ...d, profile: key }, start, end, agg, Date.now(), en);
     }],
 
     ['GET', /^\/api\/devices\/([^/]+)\/link-metrics$/, (m, q) => {
@@ -893,7 +994,7 @@ export function createDemoBackend(options = {}) {
       const m = decoded.match(re);
       if (m) return { status: 200, json: fn(m, url.searchParams, body ?? null) };
     }
-    return { status: 404, json: { code: 5, message: `route non simulée en mode démo: ${method} ${path}`, details: [] } };
+    return { status: 404, json: { code: 5, message: en ? `route not simulated in demo mode: ${method} ${path}` : `route non simulée en mode démo: ${method} ${path}`, details: [] } };
   }
 
   return {
@@ -1106,6 +1207,29 @@ if (isMainModule()) {
     const tA = (await createDemoBackend({ seed: 42 }).request('GET', '/api/tenants')).json.result[0].id;
     const tB = (await createDemoBackend({ seed: 7 }).request('GET', '/api/tenants')).json.result[0].id;
     assert(tA === tenantId && tB !== tenantId, 'déterminisme du seed');
+
+    // Version anglaise : mêmes tirages (DevEUI, clés), textes en anglais.
+    const fr2 = createDemoBackend();
+    const enApi = createDemoBackend({ lang: 'en' });
+    const tEn = (await enApi.request('GET', '/api/tenants')).json.result[0];
+    assert(tEn.name === 'OpenGTB Demo' && tEn.id === tenantId, 'tenant anglais');
+    const appsEn = (await enApi.request('GET', `/api/applications?tenantId=${tenantId}`)).json.result.map((a) => a.name).sort();
+    assert(JSON.stringify(appsEn) === JSON.stringify(['Building A — Comfort', 'Building B — Metering', 'Car park — Air quality', 'Field test']), 'applications anglaises ' + appsEn);
+    const appsFr2 = (await fr2.request('GET', `/api/applications?tenantId=${tenantId}`)).json.result;
+    const appsEnFull = (await enApi.request('GET', `/api/applications?tenantId=${tenantId}`)).json.result;
+    let euisFr = [];
+    let euisEn = [];
+    const namesEn = [];
+    for (const a of appsFr2) euisFr = euisFr.concat((await fr2.request('GET', `/api/devices?applicationId=${a.id}`)).json.result.map((d) => d.devEui));
+    for (const a of appsEnFull) {
+      const list = (await enApi.request('GET', `/api/devices?applicationId=${a.id}`)).json.result;
+      euisEn = euisEn.concat(list.map((d) => d.devEui));
+      namesEn.push(...list.map((d) => d.name));
+    }
+    assert(euisFr.length === 247 && JSON.stringify([...euisFr].sort()) === JSON.stringify([...euisEn].sort()), 'mêmes DevEUI en anglais');
+    assert(new Set(namesEn).size === namesEn.length && namesEn.some((n) => /^CO2-L\d-/.test(n)) && !namesEn.some((n) => /R\+|Salle|Bureau/.test(n)), 'noms anglais');
+    const unkEn = await enApi.request('GET', '/api/users');
+    assert(unkEn.json.message === 'route not simulated in demo mode: GET /api/users', 'route inconnue (anglais)');
 
     console.log('demo.js OK');
   })().catch((e) => {

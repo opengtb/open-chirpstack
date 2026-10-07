@@ -1,6 +1,7 @@
 // État de la session : contexte (tenant, application) et cache des devices par application.
 
 import * as api from './api.js';
+import { t } from './i18n.js';
 import { resetMoveDetection } from './ops.js';
 
 export const session = {
@@ -24,12 +25,13 @@ export const listen = (type, fn) => {
 };
 
 // ---------- Statut d'activité ----------
+// Libellés en getters : traduits à chaque affichage, la clé française reste dans le code.
 export const STATUSES = [
-    { key: 'active', label: 'Actifs', one: 'Actif', hint: 'vus il y a moins de 24 h' },
-    { key: 'recent', label: 'Récents', one: 'Récent', hint: 'vus il y a 1 à 7 jours' },
-    { key: 'inactive', label: 'Inactifs', one: 'Inactif', hint: 'vus il y a 7 à 30 jours' },
-    { key: 'offline', label: 'Hors ligne', one: 'Hors ligne', hint: 'plus de 30 jours sans message' },
-    { key: 'never', label: 'Jamais vus', one: 'Jamais vu', hint: 'aucun message reçu' },
+    { key: 'active', get label() { return t('Actifs'); }, get one() { return t('Actif'); }, get hint() { return t('vus il y a moins de 24 h'); } },
+    { key: 'recent', get label() { return t('Récents'); }, get one() { return t('Récent'); }, get hint() { return t('vus il y a 1 à 7 jours'); } },
+    { key: 'inactive', get label() { return t('Inactifs'); }, get one() { return t('Inactif'); }, get hint() { return t('vus il y a 7 à 30 jours'); } },
+    { key: 'offline', get label() { return t('Hors ligne'); }, get one() { return t('Hors ligne'); }, get hint() { return t('plus de 30 jours sans message'); } },
+    { key: 'never', get label() { return t('Jamais vus'); }, get one() { return t('Jamais vu'); }, get hint() { return t('aucun message reçu'); } },
 ];
 export const statusInfo = (k) => STATUSES.find((s) => s.key === k);
 

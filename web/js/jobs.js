@@ -3,6 +3,7 @@
 import { CONCURRENCY, humanize, pool } from './api.js';
 import { $, download, fmtNum, html, icon, openDialog, render, today } from './ui.js';
 import { toCSV } from './files.js';
+import { t } from './i18n.js';
 
 /**
  * runJob({
@@ -14,7 +15,7 @@ import { toCSV } from './files.js';
  *   after: (result) => [{ label, onClick, danger }]  // actions proposées à la fin
  * }) → Promise<{ done: [], failed: [{ item, error }], warnings: [], stopped }>
  */
-export function runJob({ title, verb = 'traité(s)', items, label, run, concurrency = CONCURRENCY, after }) {
+export function runJob({ title, verb = t('traité(s)'), items, label, run, concurrency = CONCURRENCY, after }) {
     const controller = new AbortController();
     const done = [];
     const failed = [];
@@ -27,15 +28,15 @@ export function runJob({ title, verb = 'traité(s)', items, label, run, concurre
         body: html`
             <div class="row"><div class="grow progress"><i></i></div><span class="mono small num" data-pct>0 %</span></div>
             <div class="job-stats">
-                <span>total <strong class="num">${fmtNum(items.length)}</strong></span>
+                <span>${t('total')} <strong class="num">${fmtNum(items.length)}</strong></span>
                 <span class="ok">${verb} <strong class="num" data-ok>0</strong></span>
-                <span class="err">erreurs <strong class="num" data-err>0</strong></span>
-                <span class="warn" data-warnwrap hidden>avertissements <strong class="num" data-warn>0</strong></span>
+                <span class="err">${t('erreurs')} <strong class="num" data-err>0</strong></span>
+                <span class="warn" data-warnwrap hidden>${t('avertissements')} <strong class="num" data-warn>0</strong></span>
             </div>
             <div class="log" data-log aria-live="polite"></div>
             <div data-summary class="mt"></div>`,
-        foot: html`<span class="left xs dim" data-hint>Ne fermez pas cette page pendant l'opération.</span>
-            <button class="btn btn-danger" data-stop>${icon('stop')} Arrêter</button>`,
+        foot: html`<span class="left xs dim" data-hint>${t('Ne fermez pas cette page pendant l’opération.')}</span>
+            <button class="btn btn-danger" data-stop>${icon('stop')} ${t('Arrêter')}</button>`,
         keepOpen: () => running,
     });
     const el = dlg.el;
@@ -68,7 +69,7 @@ export function runJob({ title, verb = 'traité(s)', items, label, run, concurre
     $('[data-stop]', el).addEventListener('click', (e) => {
         controller.abort();
         e.currentTarget.disabled = true;
-        e.currentTarget.textContent = 'Arrêt en cours…';
+        e.currentTarget.textContent = t('Arrêt en cours…');
     });
 
     const promise = (async () => {
@@ -93,20 +94,20 @@ export function runJob({ title, verb = 'traité(s)', items, label, run, concurre
         $('.progress', el).classList.toggle('indeterminate', false);
         const cls = failed.length ? 'warn' : stopped ? 'warn' : 'ok';
         render($('[data-summary]', el), html`<div class="callout ${cls}">${icon(failed.length ? 'alert' : 'check')}<div>
-            <strong>${stopped ? 'Opération arrêtée.' : 'Terminé.'}</strong>
-            ${fmtNum(done.length)} ${verb}${failed.length ? html`, <span class="err">${fmtNum(failed.length)} en erreur</span>` : ''}${notRun > 0 ? `, ${fmtNum(notRun)} non traité(s)` : ''}.
+            <strong>${stopped ? t('Opération arrêtée.') : t('Terminé.')}</strong>
+            ${fmtNum(done.length)} ${verb}${failed.length ? html`, <span class="err">${t('{n} en erreur', { n: fmtNum(failed.length) })}</span>` : ''}${notRun > 0 ? `, ${t('{n} non traité(s)', { n: fmtNum(notRun) })}` : ''}.
         </div></div>`);
 
         const extra = after ? after(result) : [];
         const foot = $('.dlg-foot', el);
         render(foot, html`
-            ${failed.length ? html`<button class="btn left" data-errors>${icon('download')} Rapport d'erreurs (CSV)</button>` : html`<span class="left"></span>`}
+            ${failed.length ? html`<button class="btn left" data-errors>${icon('download')} ${t('Rapport d’erreurs (CSV)')}</button>` : html`<span class="left"></span>`}
             ${extra.map((a, i) => html`<button class="btn ${a.danger ? 'btn-danger' : ''}" data-extra="${i}">${a.label}</button>`)}
-            <button class="btn btn-primary" data-close autofocus>Fermer</button>`);
+            <button class="btn btn-primary" data-close autofocus>${t('Fermer')}</button>`);
         foot.addEventListener('click', (e) => {
             if (e.target.closest('[data-errors]')) {
                 const rows = failed.map((f) => [label(f.item), f.item?.devEui || '', f.error]);
-                download(toCSV(['element', 'dev_eui', 'erreur'], rows), `erreurs-${today()}.csv`, 'text/csv;charset=utf-8');
+                download(toCSV([t('element'), 'dev_eui', t('erreur')], rows), `${t('erreurs')}-${today()}.csv`, 'text/csv;charset=utf-8');
             }
             const x = e.target.closest('[data-extra]');
             if (x) {

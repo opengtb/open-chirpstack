@@ -1,45 +1,50 @@
 // Palette de commandes (Ctrl+K ou `) : navigation, changement d'application, recherche de DevEUI.
 
-import { ROUTES, navigate, chooseApp, setTheme, logout } from './main.js';
+import { ROUTES, navigate, chooseApp, setTheme, logout, switchLang } from './main.js';
 import { session, invalidate } from './state.js';
 import { $, html, render, icon, fmtNum, openDialog } from './ui.js';
 import { normHex } from './files.js';
+import { t, getLang, cmd } from './i18n.js';
 
 function commands(q) {
     const list = [];
     const hex = normHex(q);
     if (hex.length >= 4 && /^[0-9a-f]+$/.test(hex)) {
-        list.push({ group: 'rechercher' });
-        list.push({ label: `Chercher le DevEUI « ${hex} » dans tout le tenant`, cmd: 'recherche', icon: 'search', run: () => { session.pendingSearch = hex; navigate('recherche'); } });
+        list.push({ group: t('rechercher') });
+        list.push({ label: t('Chercher le DevEUI « {hex} » dans tout le tenant', { hex }), cmd: 'recherche', icon: 'search', run: () => { session.pendingSearch = hex; navigate('recherche'); } });
     } else if (q.trim().length >= 2) {
-        list.push({ group: 'rechercher' });
-        list.push({ label: `Chercher « ${q.trim()} » dans les noms de devices`, cmd: 'recherche', icon: 'search', run: () => { session.pendingSearch = q.trim(); navigate('recherche'); } });
+        list.push({ group: t('rechercher') });
+        list.push({ label: t('Chercher « {q} » dans les noms de devices', { q: q.trim() }), cmd: 'recherche', icon: 'search', run: () => { session.pendingSearch = q.trim(); navigate('recherche'); } });
     }
-    list.push({ group: 'aller à' });
+    list.push({ group: t('aller à') });
     for (const r of ROUTES) {
-        list.push({ label: r.label.charAt(0).toUpperCase() + r.label.slice(1), cmd: `cs ${r.path}`, icon: r.icon, run: () => navigate(r.path), disabled: r.needsApp && !session.app });
+        const label = t(r.label);
+        list.push({ label: label.charAt(0).toUpperCase() + label.slice(1), cmd: `cs ${cmd(r.path)}`, icon: r.icon, run: () => navigate(r.path), disabled: r.needsApp && !session.app });
     }
     if (session.apps.length) {
-        list.push({ group: 'applications' });
+        list.push({ group: t('applications') });
         for (const a of session.apps) {
             const n = session.appCounts[a.id];
-            list.push({ label: a.name, cmd: n !== undefined ? `${fmtNum(n)} devices` : '', icon: 'layers', current: a.id === session.app?.id, run: () => chooseApp(a, { go: 'devices' }) });
+            list.push({ label: a.name, cmd: n !== undefined ? t('{n} devices', { n: fmtNum(n) }) : '', icon: 'layers', current: a.id === session.app?.id, run: () => chooseApp(a, { go: 'devices' }) });
         }
     }
-    list.push({ group: 'actions' });
-    list.push({ label: 'Ouvrir l\'historique des mesures', cmd: 'historique', icon: 'chart', run: () => navigate('historique') });
-    if (session.app) list.push({ label: 'Recharger les devices de l\'application', cmd: 'refresh', icon: 'refresh', run: () => { invalidate(session.app.id); navigate('devices'); } });
-    list.push({ label: 'Basculer clair / sombre', cmd: 'manu', icon: 'sparkles', run: () => setTheme('manu') });
-    list.push({ label: 'Se déconnecter', cmd: 'logout', icon: 'logout', run: () => logout() });
+    list.push({ group: t('actions') });
+    list.push({ label: t('Ouvrir l’historique des mesures'), cmd: 'historique', icon: 'chart', run: () => navigate('historique') });
+    if (session.app) list.push({ label: t('Recharger les devices de l’application'), cmd: 'refresh', icon: 'refresh', run: () => { invalidate(session.app.id); navigate('devices'); } });
+    list.push({ label: t('Basculer clair / sombre'), cmd: 'manu', icon: 'sparkles', run: () => setTheme('manu') });
+    list.push(getLang() === 'fr'
+        ? { label: 'Switch to English', cmd: 'lang en', icon: 'sparkles', run: () => switchLang('en') }
+        : { label: 'Passer en français', cmd: 'lang fr', icon: 'sparkles', run: () => switchLang('fr') });
+    list.push({ label: t('Se déconnecter'), cmd: 'logout', icon: 'logout', run: () => logout() });
     return list;
 }
 
 function score(item, q) {
     if (item.group) return 1;
     if (!q) return 1;
-    const t = `${item.label} ${item.cmd || ''}`.toLowerCase();
+    const text = `${item.label} ${item.cmd || ''}`.toLowerCase();
     const words = q.toLowerCase().split(/\s+/).filter(Boolean);
-    return words.every((w) => t.includes(w)) ? 1 : 0;
+    return words.every((w) => text.includes(w)) ? 1 : 0;
 }
 
 export function openPalette() {
@@ -49,9 +54,9 @@ export function openPalette() {
 
     const d = openDialog({
         cls: 'palette-dlg',
-        body: html`<div class="palette-input"><span class="prompt">$</span><input type="text" placeholder="aller à, application, DevEUI…" aria-label="Commande" autofocus spellcheck="false"></div>
+        body: html`<div class="palette-input"><span class="prompt">$</span><input type="text" placeholder="${t('aller à, application, DevEUI…')}" aria-label="${t('Commande')}" autofocus spellcheck="false"></div>
             <div class="palette-list" role="listbox"></div>
-            <div class="palette-foot"><span><kbd>↑</kbd> <kbd>↓</kbd> naviguer</span><span><kbd>Entrée</kbd> valider</span><span><kbd>Échap</kbd> fermer</span></div>`,
+            <div class="palette-foot"><span><kbd>↑</kbd> <kbd>↓</kbd> ${t('naviguer')}</span><span><kbd>${t('Entrée')}</kbd> ${t('valider')}</span><span><kbd>${t('Échap')}</kbd> ${t('fermer')}</span></div>`,
     });
     const el = d.el;
     el.querySelector('.dlg-body').style.padding = '0';
@@ -73,7 +78,7 @@ export function openPalette() {
         if (!selectable.includes(active)) active = selectable[0] ?? 0;
         render(listEl, items.map((it, i) => it.group
             ? html`<div class="palette-group">// ${it.group}</div>`
-            : html`<button class="palette-item ${i === active ? 'on' : ''}" data-i="${i}" role="option" aria-selected="${i === active}">${icon(it.icon || 'terminal')}<span>${it.label}</span>${it.current ? html`<span class="badge">actuelle</span>` : ''}<span class="cmd">${it.cmd || ''}</span></button>`));
+            : html`<button class="palette-item ${i === active ? 'on' : ''}" data-i="${i}" role="option" aria-selected="${i === active}">${icon(it.icon || 'terminal')}<span>${it.label}</span>${it.current ? html`<span class="badge">${t('actuelle')}</span>` : ''}<span class="cmd">${it.cmd || ''}</span></button>`));
         listEl.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
     };
 

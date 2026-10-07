@@ -1,5 +1,7 @@
 // Client de l'API ChirpStack : passe par le relais local (/api/...) ou par le backend de démo.
 
+import { t, getLang } from './i18n.js';
+
 export class ApiError extends Error {
     constructor(status, message, code = 0) {
         super(message);
@@ -16,7 +18,7 @@ export function configure({ url, token, mode = 'grpcweb', insecure = false }) {
 
 export async function configureDemo() {
     const { createDemoBackend } = await import('./demo.js');
-    Object.assign(conn, { url: 'demo', token: '', mode: 'demo', insecure: false, demo: createDemoBackend() });
+    Object.assign(conn, { url: 'demo', token: '', mode: 'demo', insecure: false, demo: createDemoBackend({ lang: getLang() }) });
 }
 
 export function disconnect() {
@@ -35,7 +37,7 @@ function cleanToken(t) {
 async function rawCall(path, method, body) {
     if (conn.demo) {
         const r = await conn.demo.request(method, path, body ?? null);
-        if (r.status >= 400) throw new ApiError(r.status, r.json?.message || `Erreur ${r.status}`, r.json?.code);
+        if (r.status >= 400) throw new ApiError(r.status, r.json?.message || t('Erreur {n}', { n: r.status }), r.json?.code);
         return r.json;
     }
     let res;
@@ -53,7 +55,7 @@ async function rawCall(path, method, body) {
             body: body ? JSON.stringify(body) : undefined,
         });
     } catch {
-        throw new ApiError(0, "L'outil local ne répond plus. La fenêtre Open ChirpStack a-t-elle été fermée ? Relancez-la puis rechargez cette page.");
+        throw new ApiError(0, t('L’outil local ne répond plus. La fenêtre Open ChirpStack a-t-elle été fermée ? Relancez-la puis rechargez cette page.'));
     }
     const text = await res.text();
     let json = {};
@@ -64,7 +66,7 @@ async function rawCall(path, method, body) {
             json = { message: text.slice(0, 300) };
         }
     }
-    if (!res.ok) throw new ApiError(res.status, json.message || `Erreur HTTP ${res.status}`, json.code);
+    if (!res.ok) throw new ApiError(res.status, json.message || t('Erreur HTTP {n}', { n: res.status }), json.code);
     return json;
 }
 
@@ -144,22 +146,47 @@ export async function count(path) {
     return parseInt(r.totalCount, 10) || 0;
 }
 
+// Messages connus du relais Go (toujours en français) → anglais. Le message original reste dans err.message
+// (call() s'en sert pour décider des réessais) ; seule la version affichée est traduite.
+const RELAY_EN = [
+    [/impossible de joindre l'API REST ChirpStack \(([^)]*)\) : /g, 'cannot reach the ChirpStack REST API ($1): '],
+    [/impossible de joindre ChirpStack \(([^)]*)\) : /g, 'cannot reach ChirpStack ($1): '],
+    [/le serveur (\S+) redirige vers (\S+) : utilisez directement cette adresse/g, 'server $1 redirects to $2: use that address directly'],
+    [/le serveur (\S+) ne répond pas comme une API ChirpStack \(Content-Type ("[^"]*")\) : vérifiez l'URL/g, 'server $1 does not answer like a ChirpStack API (Content-Type $2): check the URL'],
+    [/URL du serveur ChirpStack manquante/g, 'ChirpStack server URL missing'],
+    [/URL du serveur ChirpStack invalide : /g, 'invalid ChirpStack server URL: '],
+    [/URL ChirpStack invalide : /g, 'invalid ChirpStack URL: '],
+    [/origine non autorisée/g, 'origin not allowed'],
+    [/hôte non autorisé/g, 'host not allowed'],
+    [/réponse gRPC-web tronquée/g, 'truncated gRPC-web response'],
+    [/réponse vide du serveur ChirpStack/g, 'empty response from the ChirpStack server'],
+    [/grpc-status invalide/g, 'invalid grpc-status'],
+    [/L’outil local ne répond plus\. La fenêtre Open ChirpStack a-t-elle été fermée \? Relancez-la puis rechargez cette page\./g,
+        'The local tool is no longer responding. Was the Open ChirpStack window closed? Restart it, then reload this page.'],
+];
+
+function relayText(msg) {
+    if (getLang() !== 'en') return msg;
+    return RELAY_EN.reduce((s, [re, en]) => s.replace(re, en), msg);
+}
+
 // Message lisible pour l'utilisateur.
 export function humanize(err) {
     const msg = String(err?.message || err || '');
     const low = msg.toLowerCase();
     const status = err?.status ?? -1;
 
-    if (status === 0) return msg;
-    if (low.includes('invalid length') && low.includes('found 0')) return 'Device Profile manquant : choisissez-en un par défaut ou indiquez-le dans le fichier.';
-    if (low.includes('invalid length')) return 'Identifiant invalide (UUID attendu) : vérifiez le Device Profile ou l\'application.';
-    if (status === 409 || low.includes('already exists') || low.includes('device_pkey')) return 'Ce DevEUI existe déjà sur le serveur.';
+    if (status === 0) return relayText(msg);
+    if (low.includes('invalid length') && low.includes('found 0')) return t('Device Profile manquant : choisissez-en un par défaut ou indiquez-le dans le fichier.');
+    if (low.includes('invalid length')) return t('Identifiant invalide (UUID attendu) : vérifiez le Device Profile ou l’application.');
+    if (status === 409 || low.includes('already exists') || low.includes('device_pkey')) return t('Ce DevEUI existe déjà sur le serveur.');
     if (status === 401) {
-        if (/invalid ?token|jwt|signature/i.test(msg)) return 'Clé API refusée : vérifiez qu\'elle est complète et qu\'elle appartient bien à ce serveur.';
-        return 'Accès refusé : cette clé API n\'a pas les droits pour cette opération.';
+        if (/invalid ?token|jwt|signature/i.test(msg)) return t('Clé API refusée : vérifiez qu’elle est complète et qu’elle appartient bien à ce serveur.');
+        return t('Accès refusé : cette clé API n’a pas les droits pour cette opération.');
     }
-    if (status === 403) return 'Permission refusée pour cette clé API.';
-    if (status === 404 && /object does not exist/i.test(msg)) return 'Introuvable sur le serveur (déjà supprimé ?).';
-    if (status === 429) return 'Le serveur limite le nombre de requêtes : réessayez dans un instant.';
-    return msg.length > 220 ? msg.slice(0, 220) + '…' : msg;
+    if (status === 403 && !/non autoris/i.test(msg)) return t('Permission refusée pour cette clé API.');
+    if (status === 404 && /object does not exist/i.test(msg)) return t('Introuvable sur le serveur (déjà supprimé ?).');
+    if (status === 429) return t('Le serveur limite le nombre de requêtes : réessayez dans un instant.');
+    const out = relayText(msg);
+    return out.length > 220 ? out.slice(0, 220) + '…' : out;
 }

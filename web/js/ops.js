@@ -1,6 +1,7 @@
 // Opérations sur les devices, prudentes : jamais de suppression sans copie de sauvegarde ni restauration en cas d'échec.
 
 import { ApiError, del, get, humanize, post, put } from './api.js';
+import { t } from './i18n.js';
 
 const p = (eui) => `/api/devices/${encodeURIComponent(eui)}`;
 const is404 = (e) => e instanceof ApiError && e.status === 404;
@@ -89,7 +90,7 @@ export async function restore(snap, ctx) {
         try {
             await post(`${p(snap.device.devEui)}/activate`, { deviceActivation: snap.activation });
         } catch (e) {
-            ctx?.warn?.(`session non restaurée (${humanize(e)}) : le device devra refaire un join`);
+            ctx?.warn?.(t('session non restaurée ({err}) : le device devra refaire un join', { err: humanize(e) }));
         }
     }
 }
@@ -112,7 +113,7 @@ export function resetMoveDetection() {
 export async function migrateDevice(eui, destAppId, ctx, onSnap) {
     const snap = await snapshot(eui);
     onSnap?.(snap);
-    if (snap.device.applicationId === destAppId) return { snap, message: 'déjà dans cette application' };
+    if (snap.device.applicationId === destAppId) return { snap, message: t('déjà dans cette application') };
 
     if (inPlaceMove !== false) {
         let accepted = false;
@@ -127,7 +128,7 @@ export async function migrateDevice(eui, destAppId, ctx, onSnap) {
             const after = await getDevice(eui);
             if (after.device.applicationId === destAppId) {
                 inPlaceMove = true;
-                return { snap, message: 'déplacé (historique, clés et session conservés)' };
+                return { snap, message: t('déplacé (historique, clés et session conservés)') };
             }
         }
         inPlaceMove = false;
@@ -141,11 +142,11 @@ export async function migrateDevice(eui, destAppId, ctx, onSnap) {
             await deleteIfPresent(eui);
             await restore(snap, ctx);
         } catch (err2) {
-            throw new Error(`recréation impossible (${humanize(err)}) et restauration impossible (${humanize(err2)}). Recréez-le depuis la sauvegarde JSON proposée à la fin.`);
+            throw new Error(t('recréation impossible ({err}) et restauration impossible ({err2}). Recréez-le depuis la sauvegarde JSON proposée à la fin.', { err: humanize(err), err2: humanize(err2) }));
         }
-        throw new Error(`refusé par l'application cible (${humanize(err)}) : device remis dans son application d'origine`);
+        throw new Error(t('refusé par l’application cible ({err}) : device remis dans son application d’origine', { err: humanize(err) }));
     }
-    return { snap, message: snap.activation ? 'recréé avec clés et session' : snap.keys ? 'recréé avec ses clés' : 'recréé' };
+    return { snap, message: snap.activation ? t('recréé avec clés et session') : snap.keys ? t('recréé avec ses clés') : t('recréé') };
 }
 
 /**
